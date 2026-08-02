@@ -340,6 +340,52 @@ function InfiniteCanvasPage() {
         [flushSaveProject, projectId, updateProject],
     );
 
+    const resumeCanvasImageTask = useCallback(
+        async (taskId: string, taskNodes: CanvasNodeData[], controller: AbortController) => {
+            const root = taskNodes.find((node) => node.metadata?.isBatchRoot) || taskNodes.find((node) => node.type === CanvasNodeType.Image && !node.metadata?.batchRootId) || taskNodes.find((node) => !node.metadata?.batchRootId) || taskNodes[0];
+            if (!root) return;
+            const targetNodeIds = root.metadata?.isBatchRoot ? taskNodes.filter((node) => node.metadata?.batchRootId === root.id).map((node) => node.id) : [root.id];
+            const taskStatusNodeIds = taskNodes.map((node) => node.id);
+            taskStatusNodeIds.forEach((nodeId) => startGenerationRequest(nodeId, root.id, root.id, controller));
+            bindImageTask(taskStatusNodeIds, controller, taskId);
+            setRunningNodeId(root.id);
+            try {
+                const result = await streamCanvasImageTask(taskId, controller.signal, (job) => setNodes((prev) => prev.map((node) => (taskStatusNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, ...imageTaskStatus(job) } } : node))));
+                const outputs = await Promise.all([...result.outputs].sort((left, right) => left.output_index - right.output_index).map(async (output) => ({ image: await taskOutputImage(output) })));
+                if (!outputs.length) throw new Error("DEEIX 图片任务没有返回图片");
+                if (controller.signal.aborted) return;
+                const imageByNodeId = new Map(targetNodeIds.map((nodeId, index) => [nodeId, outputs[index]]).filter((item): item is [string, (typeof outputs)[number]] => Boolean(item[1])));
+                setNodes((prev) =>
+                    prev.map((node) => {
+                        const current = imageByNodeId.get(node.id);
+                        if (current) {
+                            const size = fitNodeSize(current.image.width, current.image.height, node.width, node.height);
+                            const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                            return { ...node, position: { x: center.x - size.width / 2, y: center.y - size.height / 2 }, width: size.width, height: size.height, metadata: { ...node.metadata, ...imageMetadata(current.image), ...imageTaskStatus(result) } };
+                        }
+                        if (node.id === root.id && root.metadata?.isBatchRoot) {
+                            const primary = outputs[0].image;
+                            const size = fitNodeSize(primary.width, primary.height, node.width, node.height);
+                            const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                            return { ...node, position: { x: center.x - size.width / 2, y: center.y - size.height / 2 }, width: size.width, height: size.height, metadata: { ...node.metadata, ...imageMetadata(primary), primaryImageId: targetNodeIds[0], ...imageTaskStatus(result) } };
+                        }
+                        if (node.type === CanvasNodeType.Config) return { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined, ...imageTaskStatus(result) } };
+                        return taskStatusNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: "DEEIX 图片任务返回结果不完整", ...imageTaskStatus(result) } } : node;
+                    }),
+                );
+            } catch (error) {
+                if (!isGenerationCanceled(error)) {
+                    const errorDetails = error instanceof Error ? error.message : "图片任务恢复失败";
+                    setNodes((prev) => prev.map((node) => (taskStatusNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
+                }
+            } finally {
+                taskStatusNodeIds.forEach((nodeId) => finishGenerationRequest(nodeId, controller));
+                setRunningNodeId((current) => (current === root.id ? null : current));
+            }
+        },
+        [bindImageTask, finishGenerationRequest, startGenerationRequest],
+    );
+
     const stopGenerationByRunningId = useCallback((runningId: string) => {
         const affectedNodeIds = new Set<string>();
         const taskIds = new Set<string>();
@@ -381,6 +427,7 @@ function InfiniteCanvasPage() {
             return;
         }
         let active = true;
+        const recoveryControllers = new Set<AbortController>();
         const fileIds = new Set<string>();
         setProjectLoaded(false);
         const restore = async () => {
@@ -419,13 +466,26 @@ function InfiniteCanvasPage() {
             };
             setHistoryState({ canUndo: false, canRedo: false });
             setProjectLoaded(true);
+            const taskNodesById = restoredNodes.reduce((groups, node) => {
+                if (node.metadata?.status !== NODE_STATUS_LOADING || !node.metadata.taskId) return groups;
+                const taskNodes = groups.get(node.metadata.taskId);
+                if (taskNodes) taskNodes.push(node);
+                else groups.set(node.metadata.taskId, [node]);
+                return groups;
+            }, new Map<string, CanvasNodeData[]>());
+            taskNodesById.forEach((taskNodes, taskId) => {
+                const controller = new AbortController();
+                recoveryControllers.add(controller);
+                void resumeCanvasImageTask(taskId, taskNodes, controller).finally(() => recoveryControllers.delete(controller));
+            });
         };
         void restore();
         return () => {
             active = false;
+            recoveryControllers.forEach((controller) => controller.abort());
             releaseCanvasFileUrls(new Set([...fileIds, ...collectCanvasFileIds({ nodes: nodesRef.current, chatSessions: chatSessionsRef.current })]));
         };
-    }, [authRequired, hydrated, loadProject, loadProjects, navigate, projectId]);
+    }, [authRequired, hydrated, loadProject, loadProjects, navigate, projectId, resumeCanvasImageTask]);
 
     useEffect(() => {
         if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
@@ -2301,10 +2361,11 @@ function InfiniteCanvasPage() {
                     targetIds.forEach((targetId) => startGenerationRequest(targetId, nodeId, nodeId, controller));
                     if (count > 1) startGenerationRequest(rootId, nodeId, nodeId, controller);
                     const taskNodeIds = count > 1 ? [rootId, ...targetIds] : targetIds;
+                    const taskStatusNodeIds = isConfigNode ? [...taskNodeIds, nodeId] : taskNodeIds;
                     const created = await createCanvasImageTask(projectId, task, controller.signal);
-                    bindImageTask(taskNodeIds, controller, created.job.id);
-                    setNodes((prev) => prev.map((node) => (taskNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, ...imageTaskStatus(created.job) } } : node)));
-                    const result = await streamCanvasImageTask(created.job.id, controller.signal, (job) => setNodes((prev) => prev.map((node) => (taskNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, ...imageTaskStatus(job) } } : node))));
+                    bindImageTask(taskStatusNodeIds, controller, created.job.id);
+                    setNodes((prev) => prev.map((node) => (taskStatusNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, ...imageTaskStatus(created.job) } } : node)));
+                    const result = await streamCanvasImageTask(created.job.id, controller.signal, (job) => setNodes((prev) => prev.map((node) => (taskStatusNodeIds.includes(node.id) ? { ...node, metadata: { ...node.metadata, ...imageTaskStatus(job) } } : node))));
                     const outputs = await Promise.all(
                         [...result.outputs]
                             .sort((left, right) => left.output_index - right.output_index)
