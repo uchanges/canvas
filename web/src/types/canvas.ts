@@ -58,7 +58,7 @@ export type CanvasNodeMetadata = {
     batchUsesReferenceImages?: boolean;
     primaryImageId?: string;
     imageBatchExpanded?: boolean;
-    storageKey?: string;
+    fileId?: string;
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
@@ -87,14 +87,18 @@ export type CanvasAssistantReference = {
     type: CanvasNodeTypeId;
     title: string;
     dataUrl?: string;
-    storageKey?: string;
+    fileId?: string;
     text?: string;
 };
 
 export type CanvasAssistantImage = {
     id: string;
     dataUrl: string;
-    storageKey?: string;
+    fileId?: string;
+    width?: number;
+    height?: number;
+    bytes?: number;
+    mimeType?: string;
     prompt: string;
 };
 

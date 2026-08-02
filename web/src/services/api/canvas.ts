@@ -1,4 +1,4 @@
-import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
+import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { requestDeeix } from "./deeix";
 
@@ -81,8 +81,29 @@ export async function saveCanvasScene(id: string, project: Pick<RemoteCanvasProj
             body: JSON.stringify({
                 base_revision: project.sceneRevision,
                 scene_version: project.sceneVersion,
-                scene: { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo, viewport },
+                scene: { nodes: nodes.map(persistNode), connections, chatSessions: chatSessions.map(persistSession), activeChatId, backgroundMode, showImageInfo, viewport },
             }),
         }),
     );
+}
+
+function persistNode(node: CanvasNodeData): CanvasNodeData {
+    if (!node.metadata) return node;
+    const { content, storageKey: _storageKey, references, ...metadata } = node.metadata as typeof node.metadata & { storageKey?: unknown };
+    const safeReferences = references?.filter((reference) => !reference.startsWith("data:") && !reference.startsWith("blob:"));
+    const nextMetadata = { ...metadata, references: safeReferences };
+    return node.metadata.fileId || [CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Audio].includes(node.type as CanvasNodeType) ? { ...node, metadata: nextMetadata } : { ...node, metadata: { ...nextMetadata, content } };
+}
+
+function persistSession(session: CanvasAssistantSession): CanvasAssistantSession {
+    return {
+        ...session,
+        messages: session.messages.map((message) => ({
+            ...message,
+            references: message.references?.map((reference) => {
+                const { dataUrl: _dataUrl, storageKey: _storageKey, ...next } = reference as typeof reference & { storageKey?: unknown };
+                return next;
+            }),
+        })),
+    };
 }

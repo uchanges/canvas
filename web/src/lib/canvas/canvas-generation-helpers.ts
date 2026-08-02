@@ -1,7 +1,6 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
-import { resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { resolveMediaUrl } from "@/services/file-storage";
-import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
+import { resolveCanvasFileUrl } from "@/services/api/deeix-files";
+import { referenceUrl } from "@/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
@@ -21,11 +20,11 @@ export function audioExtension(mimeType?: string) {
     return "mp3";
 }
 
-export function generationReferenceUrls(context: { referenceImages: ReferenceImage[]; referenceVideos: Array<{ storageKey?: string; url?: string }>; referenceAudios?: Array<{ storageKey?: string; url?: string }> }) {
+export function generationReferenceUrls(context: { referenceImages: ReferenceImage[]; referenceVideos: Array<{ fileId?: string; url?: string }>; referenceAudios?: Array<{ fileId?: string; url?: string }> }) {
     return [
         ...context.referenceImages.map(referenceUrl).filter((url): url is string => Boolean(url)),
-        ...context.referenceVideos.map((video) => video.storageKey || video.url).filter((url): url is string => Boolean(url)),
-        ...(context.referenceAudios || []).map((audio) => audio.storageKey || audio.url).filter((url): url is string => Boolean(url)),
+        ...context.referenceVideos.map((video) => video.fileId || video.url).filter((url): url is string => Boolean(url)),
+        ...(context.referenceAudios || []).map((audio) => audio.fileId || audio.url).filter((url): url is string => Boolean(url)),
     ];
 }
 
@@ -33,9 +32,9 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     if (metadata.generationType !== "edit") return [];
     if (!metadata.references?.length) return null;
     const references = await Promise.all(
-        metadata.references.map(async (url, index) => {
-            const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
-            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined } : null;
+        metadata.references.map(async (fileId, index) => {
+            const dataUrl = await resolveCanvasFileUrl(fileId);
+            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, fileId } : null;
         }),
     );
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
@@ -45,22 +44,16 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
             const content = node.metadata?.content;
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !content) return node;
-            if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
-            if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
+            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.fileId) return { ...node, metadata: { ...node.metadata, content: await resolveCanvasFileUrl(node.metadata.fileId, content) } };
+            if (node.metadata?.fileId) return { ...node, metadata: { ...node.metadata, content: await resolveCanvasFileUrl(node.metadata.fileId, content) } };
+            return node;
         }),
     );
 }
 
 export async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
-    const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
-        if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
-        if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: image.url, storageKey: image.storageKey };
-        }
+    const hydrateItem = async <T extends { dataUrl?: string; fileId?: string }>(item: T) => {
+        if (item.fileId) return { ...item, dataUrl: await resolveCanvasFileUrl(item.fileId, item.dataUrl) };
         return item;
     };
     return Promise.all(
@@ -139,7 +132,7 @@ export function sourceNodeReferenceImages(node: CanvasNodeData | null) {
             name: `${node.title || node.id}.png`,
             type: node.metadata.mimeType || "image/png",
             dataUrl: node.metadata.content,
-            storageKey: node.metadata.storageKey,
+            fileId: node.metadata.fileId,
         },
     ];
 }

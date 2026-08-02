@@ -81,6 +81,12 @@ export async function requestDeeix<T>(path: string, init: RequestInit = {}, retr
     return readEnvelope<T>(response);
 }
 
+export async function requestDeeixResponse(path: string, init: RequestInit = {}, retryOnUnauthorized = true) {
+    const response = await fetchDeeix(path, init, retryOnUnauthorized);
+    if (!response.ok) await readEnvelope<never>(response);
+    return response;
+}
+
 async function fetchDeeix(path: string, init: RequestInit = {}, retryOnUnauthorized = true) {
     const headers = new Headers(init.headers);
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);

@@ -10,8 +10,7 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { cn } from "@/lib/utils";
 import { PromptDetailDialog } from "@/pages/prompts/components/prompt-detail-dialog";
 import { fetchSourcePrompts, type Prompt } from "@/services/api/prompts";
-import { uploadMediaFile } from "@/services/file-storage";
-import { uploadImage } from "@/services/image-storage";
+import { uploadCanvasFile } from "@/services/api/deeix-files";
 import { useAssetStore, type Asset, type AssetKind } from "@/stores/use-asset-store";
 import { usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import { CANVAS_SIDE_PANEL_MAX_WIDTH, CANVAS_SIDE_PANEL_MIN_WIDTH, CANVAS_SIDE_PANEL_MOTION_MS, useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
@@ -286,8 +285,8 @@ const ASSET_GROUPS: { kind: AssetKind; label: string; icon: typeof Square }[] = 
 
 function buildInsertPayload(asset: Asset): InsertAssetPayload {
     if (asset.kind === "text") return { kind: "text", content: asset.data.content, title: asset.title };
-    if (asset.kind === "video") return { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height };
-    return { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title };
+    if (asset.kind === "video") return { kind: "video", url: asset.data.url, fileId: asset.data.fileId, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType };
+    return { kind: "image", dataUrl: asset.data.dataUrl, fileId: asset.data.fileId, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes, mimeType: asset.data.mimeType };
 }
 
 const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
@@ -319,12 +318,12 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
         try {
             for (const file of files) {
                 if (file.type.startsWith("image/")) {
-                    const image = await uploadImage(file);
-                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], data: { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType } });
+                    const image = await uploadCanvasFile(file);
+                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], data: { dataUrl: image.url, fileId: image.fileId, width: image.width || 0, height: image.height || 0, bytes: image.bytes, mimeType: image.mimeType } });
                     added += 1;
                 } else if (file.type.startsWith("video/")) {
-                    const media = await uploadMediaFile(file, "video");
-                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: media.url, storageKey: media.storageKey, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType } });
+                    const media = await uploadCanvasFile(file);
+                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: media.url, fileId: media.fileId, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType } });
                     added += 1;
                 }
             }

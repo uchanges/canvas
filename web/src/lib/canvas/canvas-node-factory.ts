@@ -1,8 +1,7 @@
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import type { AiConfig } from "@/stores/use-config-store";
-import type { UploadedImage } from "@/services/image-storage";
-import type { UploadedFile } from "@/services/file-storage";
+import type { CanvasMediaFile } from "@/services/api/deeix-files";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/types/canvas";
 
@@ -24,20 +23,20 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     };
 }
 
-export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
+export function imageMetadata(image: CanvasMediaFile): CanvasNodeMetadata {
+    return { content: image.url, fileId: image.fileId, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
 }
 
-export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
+export function videoMetadata(video: CanvasMediaFile): CanvasNodeMetadata {
+    return { content: video.url, fileId: video.fileId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
 }
 
-export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+export function audioMetadata(audio: CanvasMediaFile): CanvasNodeMetadata {
+    return { content: audio.url, fileId: audio.fileId, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
 }
 
 export function referenceUrl(image: ReferenceImage) {
-    return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
+    return image.fileId || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
 }
 
 export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {

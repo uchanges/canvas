@@ -164,7 +164,7 @@ function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
         name: `${node.title || node.id}.png`,
         type: node.metadata.mimeType || "image/png",
         dataUrl: node.metadata.content,
-        storageKey: node.metadata.storageKey,
+        fileId: node.metadata.fileId,
     };
 }
 
@@ -175,7 +175,7 @@ function readReferenceVideo(node: CanvasNodeData): ReferenceVideo | null {
         name: `${node.title || node.id}.mp4`,
         type: node.metadata.mimeType || "video/mp4",
         url: node.metadata.content,
-        storageKey: node.metadata.storageKey,
+        fileId: node.metadata.fileId,
         bytes: node.metadata.bytes,
         width: node.metadata.naturalWidth,
         height: node.metadata.naturalHeight,
@@ -190,7 +190,7 @@ function readReferenceAudio(node: CanvasNodeData): ReferenceAudio | null {
         name: `${node.title || node.id}.mp3`,
         type: node.metadata.mimeType || "audio/mpeg",
         url: node.metadata.content,
-        storageKey: node.metadata.storageKey,
+        fileId: node.metadata.fileId,
         durationMs: node.metadata.durationMs,
     };
 }

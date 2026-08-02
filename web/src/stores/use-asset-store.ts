@@ -3,13 +3,14 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { resolveCanvasFileUrl } from "@/services/api/deeix-files";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
 
 export type AssetKind = "text" | "image" | "video";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
-export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
-export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
+export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; fileId?: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
+export type VideoAsset = AssetBase<"video"> & { data: { url: string; fileId?: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
 export type Asset = TextAsset | ImageAsset | VideoAsset;
 
 type AssetBase<T extends AssetKind> = {
@@ -44,6 +45,11 @@ const assetStorage: PersistStorage<AssetStore> = {
         const parsed = JSON.parse(value) as StorageValue<AssetStore>;
         parsed.state.assets = await Promise.all(
             parsed.state.assets.map(async (asset) => {
+                if (asset.kind === "video" && asset.data.fileId) return { ...asset, data: { ...asset.data, url: await resolveCanvasFileUrl(asset.data.fileId, asset.data.url) } };
+                if (asset.kind === "image" && asset.data.fileId) {
+                    const url = await resolveCanvasFileUrl(asset.data.fileId, asset.data.dataUrl || asset.coverUrl);
+                    return { ...asset, coverUrl: url, data: { ...asset.data, dataUrl: url } };
+                }
                 if (asset.kind === "video" && asset.data.storageKey) return { ...asset, data: { ...asset.data, url: await resolveMediaUrl(asset.data.storageKey, asset.data.url) } };
                 if (asset.kind !== "image") return asset;
                 if (asset.data.storageKey)

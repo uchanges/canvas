@@ -2,6 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/lib/image-utils";
+import { resolveCanvasFileUrl } from "@/services/api/deeix-files";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
@@ -261,6 +262,7 @@ async function resolveSeedanceImageUrl(config: AiConfig, image: ReferenceImage) 
 async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
     if (isPublicMediaUrl(video.url) || video.url.startsWith("asset://")) return video.url;
     let blob: Blob | null = null;
+    if (video.fileId) blob = await (await fetch(await resolveCanvasFileUrl(video.fileId, video.url))).blob();
     if (video.storageKey) blob = await getMediaBlob(video.storageKey);
     if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();
     if (!blob) throw new Error("参考视频必须是公网 URL、资产 ID，或本地已保存的视频");
@@ -270,6 +272,7 @@ async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
 async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
     if (isPublicMediaUrl(audio.url) || audio.url.startsWith("asset://")) return audio.url;
     let blob: Blob | null = null;
+    if (audio.fileId) blob = await (await fetch(await resolveCanvasFileUrl(audio.fileId, audio.url))).blob();
     if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
     if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
     if (!blob) throw new Error("参考音频必须是公网 URL、资产 ID，或本地已保存的音频");

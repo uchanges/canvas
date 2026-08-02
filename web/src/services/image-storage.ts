@@ -2,6 +2,7 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
+import { resolveCanvasFileUrl } from "@/services/api/deeix-files";
 
 export type UploadedImage = {
     url: string;
@@ -47,8 +48,8 @@ export async function setImageBlob(storageKey: string, blob: Blob) {
     return url;
 }
 
-export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }) {
-    const url = image.dataUrl || (await resolveImageUrl(image.storageKey, image.url || ""));
+export async function imageToDataUrl(image: { url?: string; dataUrl?: string; fileId?: string; storageKey?: string }) {
+    const url = image.dataUrl || (image.fileId ? await resolveCanvasFileUrl(image.fileId, image.url || "") : await resolveImageUrl(image.storageKey, image.url || ""));
     if (!url || url.startsWith("data:")) return url;
     return blobToDataUrl(await (await fetch(url)).blob());
 }
