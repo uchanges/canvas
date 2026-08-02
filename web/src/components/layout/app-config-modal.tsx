@@ -32,9 +32,8 @@ const modelGroups: ModelGroup[] = [
     { capability: "audio", modelKey: "audioModel", defaultLabel: "默认音频模型" },
 ];
 
-const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
+const webdavDomainKeys: AppSyncDomainKey[] = ["assets", "image-workbench", "video-workbench"];
 const webdavDomainLabels: Record<AppSyncDomainKey, string> = {
-    canvas: "画布",
     assets: "我的资产",
     "image-workbench": "生图工作台",
     "video-workbench": "视频创作台",
@@ -155,7 +154,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
         try {
             const result = await syncAppDataToWebdav(webdav, updateWebdavProgress);
             updateWebdavConfig("lastSyncedAt", result.syncedAt);
-            message.success(`同步完成：${result.projects} 个画布，${result.assets} 个资产，${result.imageLogs + result.videoLogs} 条记录，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}`);
+            message.success(`同步完成：云端画布不参与 WebDAV 同步；${result.assets} 个资产，${result.imageLogs + result.videoLogs} 条记录，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}`);
         } catch (error) {
             setWebdavSyncStatus(error instanceof Error ? error.message : "WebDAV 同步失败");
             message.error(error instanceof Error ? error.message : "WebDAV 同步失败");

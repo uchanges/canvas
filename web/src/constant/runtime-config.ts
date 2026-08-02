@@ -8,6 +8,8 @@
 type RuntimeConfig = {
     ANALYTICS_GA4_ID?: string; // GA4 衡量 ID（G-XXXX）
     ANALYTICS_BAIDU_ID?: string; // 百度统计站点 ID
+    DEEIX_API_BASE_URL?: string;
+    DEEIX_LOGIN_URL?: string;
 };
 
 declare global {
@@ -28,3 +30,5 @@ function read(key: keyof RuntimeConfig, buildTime: string | undefined, fallback 
 export const ANALYTICS_GA4_ID = read("ANALYTICS_GA4_ID", import.meta.env.VITE_ANALYTICS_GA4_ID);
 export const ANALYTICS_BAIDU_ID = read("ANALYTICS_BAIDU_ID", import.meta.env.VITE_ANALYTICS_BAIDU_ID);
 
+export const DEEIX_API_BASE_URL = read("DEEIX_API_BASE_URL", import.meta.env.VITE_DEEIX_API_BASE_URL, "/api/v1");
+export const DEEIX_LOGIN_URL = read("DEEIX_LOGIN_URL", import.meta.env.VITE_DEEIX_LOGIN_URL, "/login");

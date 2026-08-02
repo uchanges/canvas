@@ -27,6 +27,9 @@ export function CanvasTopBar({
     onOpenPlugins,
     onUndo,
     onRedo,
+    saveStatus,
+    saveError,
+    onRetrySave,
     agentOpen,
     compactAgentStatus,
     onToggleAgent,
@@ -36,19 +39,22 @@ export function CanvasTopBar({
     isTitleEditing: boolean;
     onTitleDraftChange: (value: string) => void;
     onStartTitleEditing: () => void;
-    onFinishTitleEditing: () => void;
+    onFinishTitleEditing: () => void | Promise<void>;
     onCancelTitleEditing: () => void;
     canUndo: boolean;
     canRedo: boolean;
     onHome: () => void;
     onProjects: () => void;
-    onCreateProject: () => void;
-    onDeleteProject: () => void;
+    onCreateProject: () => void | Promise<void>;
+    onDeleteProject: () => void | Promise<void>;
     onExportProject: () => void;
     onImportImage: () => void;
     onOpenPlugins: () => void;
     onUndo: () => void;
     onRedo: () => void;
+    saveStatus: "saved" | "saving" | "error" | "conflict";
+    saveError?: string;
+    onRetrySave: () => void;
     agentOpen: boolean;
     compactAgentStatus: { connected: boolean; enabled: boolean; activity: string };
     onToggleAgent: () => void;
@@ -133,6 +139,7 @@ export function CanvasTopBar({
                             </button>
                         )}
                     </div>
+                    <CanvasSaveStatus status={saveStatus} error={saveError} onRetry={onRetrySave} />
                     <CompactAgentStatus status={compactAgentStatus} onClick={onToggleAgent} />
                 </div>
 
@@ -168,6 +175,22 @@ export function CanvasTopBar({
                 </div>
             </Modal>
         </>
+    );
+}
+
+function CanvasSaveStatus({ status, error, onRetry }: { status: "saved" | "saving" | "error" | "conflict"; error?: string; onRetry: () => void }) {
+    const label = status === "saving" ? "保存中" : status === "saved" ? "已保存" : status === "conflict" ? "保存冲突" : "保存失败";
+    const title = error || label;
+    return (
+        <button
+            type="button"
+            className="text-xs text-stone-500 transition hover:opacity-70 disabled:cursor-default disabled:hover:opacity-100 dark:text-stone-400"
+            title={title}
+            disabled={status === "saved" || status === "saving" || status === "conflict"}
+            onClick={onRetry}
+        >
+            {label}
+        </button>
     );
 }
 
