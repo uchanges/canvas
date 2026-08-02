@@ -17,6 +17,7 @@
 
 - [本地开发](/docs/development/local-development)
 - [画布数据结构](/docs/development/canvas-data-structure)
+- [DEEIX 后端集成开发方案](/docs/development/deeix-backend-integration)
 
 ## 商务合作
 
