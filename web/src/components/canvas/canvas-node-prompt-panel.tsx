@@ -9,6 +9,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasDeeixImageModelPicker } from "./canvas-deeix-image-model-picker";
 import { CanvasDeeixTextModelPicker } from "./canvas-deeix-text-model-picker";
+import { CanvasDeeixVideoModelPicker } from "./canvas-deeix-video-model-picker";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
@@ -95,7 +96,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     ) : mode === "video" ? (
                         <>
-                            <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="video" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />
+                            <CanvasDeeixVideoModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="max-w-[190px]" />
                             <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                         </>
                     ) : mode === "audio" ? (

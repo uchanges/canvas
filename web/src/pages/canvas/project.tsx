@@ -5,11 +5,11 @@ import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { requestAudioGeneration } from "@/services/api/audio";
-import { requestVideoGeneration, type VideoGenerationResult } from "@/services/api/video";
 import { cancelCanvasImageTask, createCanvasImageTask, resolveCanvasImageTask, streamCanvasImageTask, type CanvasImageJob } from "@/services/api/canvas-image";
 import { resolveCanvasTextModel, streamCanvasTextTask } from "@/services/api/canvas-text";
+import { resolveCanvasVideoModel, streamCanvasVideoTask, type CanvasVideoTaskFile } from "@/services/api/canvas-video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { collectCanvasFileIds, releaseCanvasFileUrls, resolveCanvasFileUrl, uploadCanvasFile } from "@/services/api/deeix-files";
+import { collectCanvasFileIds, releaseCanvasFileUrls, resolveCanvasFileUrl, resolveCanvasMediaFile, uploadCanvasFile } from "@/services/api/deeix-files";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
@@ -132,12 +132,6 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
 3. 尽量写成可直接用于生图模型的完整提示词。`;
 
-async function uploadGeneratedVideo(result: VideoGenerationResult) {
-    if (result.blob) return uploadCanvasFile(result.blob, "generated-video");
-    if (result.url) return uploadCanvasFile(result.url, "generated-video");
-    throw new Error("视频接口没有返回可播放的视频");
-}
-
 function imageTaskFileIds(images: ReferenceImage[]) {
     const fileIds = images.map((image) => image.fileId).filter((fileId): fileId is string => Boolean(fileId));
     if (fileIds.length !== images.length) throw new Error("参考图片尚未同步到 DEEIX，暂时无法提交云端图片任务");
@@ -152,6 +146,11 @@ function textTaskOptions(reasoningEffort: CanvasNodeMetadata["reasoningEffort"])
     return reasoningEffort && reasoningEffort !== "auto" ? { reasoning: { effort: reasoningEffort } } : {};
 }
 
+function videoTaskOptions(seconds: string) {
+    const durationSeconds = Math.floor(Number(seconds));
+    return durationSeconds > 0 ? { durationSeconds } : {};
+}
+
 async function taskOutputImage(output: CanvasImageJob["outputs"][number]) {
     return {
         fileId: output.file_id,
@@ -161,6 +160,10 @@ async function taskOutputImage(output: CanvasImageJob["outputs"][number]) {
         width: output.width || 1024,
         height: output.height || 1024,
     };
+}
+
+function taskOutputVideo(output: CanvasVideoTaskFile) {
+    return resolveCanvasMediaFile(output.file_id, output.mime_type || "video/mp4", output.size_bytes || 0);
 }
 
 export default function CanvasPage() {
@@ -2189,7 +2192,7 @@ function InfiniteCanvasPage() {
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
-            if (mode !== "image" && mode !== "text" && !isAiConfigReady(generationConfig, generationConfig.model)) {
+            if (mode === "audio" && !isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
             }
@@ -2400,6 +2403,9 @@ function InfiniteCanvasPage() {
                 }
 
                 if (mode === "video") {
+                    if (generationContext.referenceVideos.length || generationContext.referenceAudios.length) throw new Error("DEEIX Canvas 视频任务当前仅支持一张参考图片");
+                    const videoModel = await resolveCanvasVideoModel(sourceNode?.metadata?.model);
+                    const videoFileIds = imageTaskFileIds(generationContext.referenceImages);
                     const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
                     const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
                     const videoId = isEmptyVideoNode ? nodeId : nanoid();
@@ -2414,7 +2420,7 @@ function InfiniteCanvasPage() {
                         metadata: {
                             prompt: effectivePrompt,
                             status: NODE_STATUS_LOADING,
-                            model: generationConfig.model,
+                            model: videoModel.platformModelName,
                             size: generationConfig.size,
                             seconds: generationConfig.videoSeconds,
                             vquality: generationConfig.vquality,
@@ -2424,17 +2430,23 @@ function InfiniteCanvasPage() {
                         },
                     };
                     pendingChildIds = [videoId];
-                    setNodes((prev) =>
+                    const nextNodes =
                         isEmptyVideoNode
-                            ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
-                            : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
-                    );
-                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
+                            ? nodesRef.current.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
+                            : [...nodesRef.current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode];
+                    const nextConnections = isEmptyVideoNode ? connectionsRef.current : [...connectionsRef.current, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }];
+                    await persistProjectScene(nextNodes, nextConnections);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
-                        const video = await uploadGeneratedVideo(
-                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
+                        const result = await streamCanvasVideoTask(
+                            projectId,
+                            { nodeId: videoId, model: videoModel.platformModelName, prompt: effectivePrompt, fileIds: videoFileIds, options: videoTaskOptions(generationConfig.videoSeconds) },
+                            controller.signal,
+                            ({ runId, stage }) => {
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, taskId: runId || node.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
+                            },
                         );
+                        const video = await taskOutputVideo(result.files[0]);
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) =>
@@ -2448,13 +2460,16 @@ function InfiniteCanvasPage() {
                                               ...node.metadata,
                                               ...videoMetadata(video),
                                               prompt: effectivePrompt,
-                                              model: generationConfig.model,
+                                              model: result.model,
                                               size: generationConfig.size,
                                               seconds: generationConfig.videoSeconds,
                                               vquality: generationConfig.vquality,
                                               generateAudio: generationConfig.videoGenerateAudio,
                                               watermark: generationConfig.videoWatermark,
                                               references: generationReferenceUrls(generationContext),
+                                              taskId: result.runId,
+                                              taskStatus: "succeeded",
+                                              taskStage: "completed",
                                           },
                                       }
                                     : node,
@@ -2596,7 +2611,7 @@ function InfiniteCanvasPage() {
                           count: "1",
                       }
                     : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
-            if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Text && !isAiConfigReady(generationConfig, generationConfig.model)) {
+            if (node.type === CanvasNodeType.Audio && !isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
             }
@@ -2638,7 +2653,17 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
-                    const video = await uploadGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    if ((context?.referenceVideos.length || context?.referenceAudios.length) || retryImages.length > 1) throw new Error("DEEIX Canvas 视频任务当前仅支持一张参考图片");
+                    const videoModel = await resolveCanvasVideoModel(node.metadata?.model);
+                    const result = await streamCanvasVideoTask(
+                        projectId,
+                        { nodeId: node.id, model: videoModel.platformModelName, prompt, fileIds: imageTaskFileIds(retryImages), options: videoTaskOptions(generationConfig.videoSeconds) },
+                        controller.signal,
+                        ({ runId, stage }) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskId: runId || item.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
+                        },
+                    );
+                    const video = await taskOutputVideo(result.files[0]);
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>
@@ -2650,15 +2675,18 @@ function InfiniteCanvasPage() {
                                       position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
                                       metadata: {
                                           ...item.metadata,
-                                          ...videoMetadata(video),
-                                          prompt,
-                                          model: generationConfig.model,
-                                          size: generationConfig.size,
-                                          seconds: generationConfig.videoSeconds,
-                                          vquality: generationConfig.vquality,
-                                          generateAudio: generationConfig.videoGenerateAudio,
-                                          watermark: generationConfig.videoWatermark,
-                                      },
+                                              ...videoMetadata(video),
+                                              prompt,
+                                              model: result.model,
+                                              size: generationConfig.size,
+                                              seconds: generationConfig.videoSeconds,
+                                              vquality: generationConfig.vquality,
+                                              generateAudio: generationConfig.videoGenerateAudio,
+                                              watermark: generationConfig.videoWatermark,
+                                              taskId: result.runId,
+                                              taskStatus: "succeeded",
+                                              taskStage: "completed",
+                                          },
                                   }
                                 : item,
                         ),

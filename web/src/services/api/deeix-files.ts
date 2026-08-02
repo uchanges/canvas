@@ -41,6 +41,12 @@ export async function resolveCanvasFileUrl(fileId: string, fallback = "") {
     return url;
 }
 
+export async function resolveCanvasMediaFile(fileId: string, mimeType = "", bytes = 0): Promise<CanvasMediaFile> {
+    const url = await resolveCanvasFileUrl(fileId);
+    const metadata = await readMediaMetadata(url, mimeType);
+    return { fileId, url, bytes, mimeType, width: metadata.width || 0, height: metadata.height || 0, durationMs: metadata.durationMs };
+}
+
 export async function getCanvasFileBlob(fileId: string) {
     const response = await requestDeeixResponse(`files/${encodeURIComponent(fileId)}/content`);
     return response.blob();
