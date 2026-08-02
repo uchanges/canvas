@@ -7,12 +7,12 @@ import { AudioSettingsPanel } from "@/components/audio-settings-panel";
 import { audioFormatLabel, audioSpeedLabel, audioVoiceLabel } from "@/lib/audio-generation";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import type { AiConfig } from "@/stores/use-config-store";
+import type { CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 
 export type CanvasAudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions";
 
 type CanvasAudioSettingsPopoverProps = {
-    config: AiConfig;
+    config: CanvasGenerationConfig;
     onConfigChange: (key: CanvasAudioSettingKey, value: string) => void;
     buttonClassName?: string;
     placement?: "topLeft" | "top" | "topRight" | "bottomLeft" | "bottom" | "bottomRight";
@@ -74,7 +74,7 @@ function AudioSettingsPortal({
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasAudioSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    config: AiConfig;
+    config: CanvasGenerationConfig;
     onConfigChange: (key: CanvasAudioSettingKey, value: string) => void;
 }) {
     const width = 356;

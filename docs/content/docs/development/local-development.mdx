@@ -1,40 +1,23 @@
 ---
 title: 本地开发
-description: 前端优先的本地开发方式
+description: 在本机连接 DEEIX 服务开发画布前端
 ---
 
 # 本地开发
 
-当前主应用以 `web/` 前端为主，AI 请求由浏览器前台直连用户自己的 OpenAI 兼容接口。
-
-## 1. 启动前端
+## 前端
 
 ```bash
 cd web
-bun install
-bun run dev
+npm install
+npm run dev
 ```
 
-前端默认访问：
+前端默认请求 `/api/v1`。本地 DEEIX 不同源时，设置 `VITE_DEEIX_API_BASE_URL`、`VITE_DEEIX_LOGIN_URL`，并在 DEEIX 配置允许对应 Origin 与 Cookie。
 
-```text
-http://localhost:3000
-```
+## 开发约定
 
-## 2. 配置模型
-
-打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。第三方提示词和 WebDAV 都由浏览器前端直连。
-
-## 3. 启动文档站
-
-如果需要单独调整文档站，在 `docs` 目录执行：
-
-```bash
-bun run dev
-```
-
-## 常见场景
-
-- 改画布、页面和交互：主要看 `web/`
-- 改提示词缓存：主要看 `web/src/services/api/prompts.ts`
-- 改文档站内容：主要看 `docs/content/docs/`
+- 浏览器只请求 `web/src/services/api/` 中的 DEEIX 封装；组件不直接拼接服务 URL 或读取令牌。
+- 项目、模型、文件和任务以 DEEIX 返回数据为准，不新增 IndexedDB 作为平台业务持久化。
+- 上游模型密钥、渠道协议和自定义请求脚本仅属于 DEEIX 管理后台，不进入前端。
+- 文本、视频、音频生成均为 SSE 请求；组件卸载时必须传递 AbortSignal。

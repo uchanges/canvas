@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Square } from "lucide-react";
 import { Button } from "antd";
 
-import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultCanvasGenerationConfig, resolveCanvasModelForCapability, type CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -34,8 +33,7 @@ type CanvasNodePromptPanelProps = {
 };
 
 export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
-    const globalConfig = useEffectiveConfig();
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const globalConfig = defaultCanvasGenerationConfig;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = modeOverride ?? defaultMode(node.type);
     const config = buildNodeConfig(globalConfig, node, mode);
@@ -91,7 +89,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                                 placement="topLeft"
                                 buttonClassName="!h-10 !max-w-[170px] !justify-start !rounded-full !px-3"
                                 onConfigChange={(key, value) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value })}
-                                onMissingConfig={() => openConfigDialog(true)}
                                 onOpenChange={onImageSettingsOpenChange}
                             />
                         </>
@@ -141,23 +138,23 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
     return type === CanvasNodeType.Text ? "text" : type === CanvasNodeType.Video ? "video" : type === CanvasNodeType.Audio ? "audio" : "image";
 }
 
-function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode): AiConfig {
+function buildNodeConfig(globalConfig: CanvasGenerationConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode): CanvasGenerationConfig {
     return {
         ...globalConfig,
-        model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
-        reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
-        quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
-        size: node.metadata?.size || globalConfig.size || defaultConfig.size,
-        background: node.metadata?.background ?? globalConfig.background ?? defaultConfig.background,
-        videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
-        videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
-        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
+        model: resolveCanvasModelForCapability(globalConfig, node.metadata?.model, mode),
+        reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultCanvasGenerationConfig.reasoningEffort,
+        quality: node.metadata?.quality || globalConfig.quality || defaultCanvasGenerationConfig.quality,
+        size: node.metadata?.size || globalConfig.size || defaultCanvasGenerationConfig.size,
+        background: node.metadata?.background ?? globalConfig.background ?? defaultCanvasGenerationConfig.background,
+        videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultCanvasGenerationConfig.videoSeconds,
+        vquality: node.metadata?.vquality || globalConfig.vquality || defaultCanvasGenerationConfig.vquality,
+        videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultCanvasGenerationConfig.videoGenerateAudio,
+        videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultCanvasGenerationConfig.videoWatermark,
+        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultCanvasGenerationConfig.audioVoice,
+        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultCanvasGenerationConfig.audioFormat,
+        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultCanvasGenerationConfig.audioSpeed,
+        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultCanvasGenerationConfig.audioInstructions,
+        count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultCanvasGenerationConfig.count),
     };
 }
 
@@ -168,7 +165,7 @@ function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: bool
     return hasTextContent ? "请输入你想要将本段文本修改成什么" : "请输入你想要生成的文本内容";
 }
 
-function videoConfigPatch(key: keyof AiConfig, value: string) {
+function videoConfigPatch(key: keyof CanvasGenerationConfig, value: string) {
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };

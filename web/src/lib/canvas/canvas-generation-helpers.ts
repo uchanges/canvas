@@ -1,4 +1,4 @@
-import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
+import { defaultCanvasGenerationConfig, resolveCanvasModelForCapability, type CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 import { resolveCanvasFileUrl } from "@/services/api/deeix-files";
 import { referenceUrl } from "@/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
@@ -82,32 +82,36 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
     };
 }
 
-export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
+export function buildGenerationConfig(config: CanvasGenerationConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): CanvasGenerationConfig {
     return {
         ...config,
-        model: resolveModelForCapability(config, node?.metadata?.model, mode),
-        reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
-        quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
-        size: node?.metadata?.size || config.size || defaultConfig.size,
-        background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
-        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
-        videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
-        audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
+        model: resolveCanvasModelForCapability(config, node?.metadata?.model, mode),
+        reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultCanvasGenerationConfig.reasoningEffort,
+        quality: node?.metadata?.quality || config.quality || defaultCanvasGenerationConfig.quality,
+        size: node?.metadata?.size || config.size || defaultCanvasGenerationConfig.size,
+        background: node?.metadata?.background ?? config.background ?? defaultCanvasGenerationConfig.background,
+        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultCanvasGenerationConfig.videoSeconds,
+        vquality: node?.metadata?.vquality || config.vquality || defaultCanvasGenerationConfig.vquality,
+        videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultCanvasGenerationConfig.videoGenerateAudio,
+        videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultCanvasGenerationConfig.videoWatermark,
+        audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultCanvasGenerationConfig.audioVoice,
+        audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultCanvasGenerationConfig.audioFormat,
+        audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultCanvasGenerationConfig.audioSpeed,
+        audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultCanvasGenerationConfig.audioInstructions,
+        count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultCanvasGenerationConfig.count),
     };
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
     return nodes.map((node) =>
-        node.metadata?.status === "loading" && !node.metadata.taskId
-            ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } }
+        node.metadata?.status === "loading" && (!node.metadata.taskId || !isResumableCanvasImageTask(node))
+            ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。", taskId: undefined, taskStatus: undefined, taskStage: undefined } }
             : node,
     );
+}
+
+export function isResumableCanvasImageTask(node: CanvasNodeData) {
+    return node.type === CanvasNodeType.Image || (node.type === CanvasNodeType.Config && node.metadata?.generationMode === "image");
 }
 
 export function isGenerationCanceled(error: unknown) {

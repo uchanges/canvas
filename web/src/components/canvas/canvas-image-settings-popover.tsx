@@ -6,11 +6,11 @@ import { Button } from "antd";
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import type { AiConfig } from "@/stores/use-config-store";
+import type { CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 
 type CanvasImageSettingsPopoverProps = {
-    config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    config: CanvasGenerationConfig;
+    onConfigChange: (key: keyof CanvasGenerationConfig, value: string) => void;
     onMissingConfig?: () => void;
     onOpenChange?: (open: boolean) => void;
     buttonClassName?: string;
@@ -84,8 +84,8 @@ function ImageSettingsPortal({
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasImageSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    config: CanvasGenerationConfig;
+    onConfigChange: (key: keyof CanvasGenerationConfig, value: string) => void;
 }) {
     const width = 356;
     const gap = 8;

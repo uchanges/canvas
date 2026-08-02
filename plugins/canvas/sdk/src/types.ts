@@ -115,10 +115,10 @@ export type CanvasTheme = {
 };
 
 // ---------------------------------------------------------------------------
-// 画布指令集(ctx.applyOps):与 AI Agent 同级的画布操作能力
+// 画布操作集（ctx.applyOps）
 // ---------------------------------------------------------------------------
 
-export type CanvasAgentOp =
+export type CanvasOperation =
     | { type: "add_node"; id?: string; nodeType?: CanvasNodeTypeId; title?: string; position?: { x: number; y: number }; x?: number; y?: number; width?: number; height?: number; metadata?: CanvasNodeMetadata }
     | { type: "update_node"; id: string; patch?: Partial<CanvasNodeData>; metadata?: CanvasNodeMetadata }
     | { type: "delete_node"; id?: string; ids?: string[]; nodeType?: CanvasNodeTypeId }
@@ -237,8 +237,8 @@ export type CanvasNodeContext = {
     getConnections: () => CanvasConnection[];
     getUpstream: () => CanvasNodeData[];
     getDownstream: () => CanvasNodeData[];
-    // 画布操作(复用 Agent 指令集)
-    applyOps: (ops: CanvasAgentOp[]) => void;
+    // 画布操作
+    applyOps: (ops: CanvasOperation[]) => void;
     // 节点间/插件间通信
     emit: (event: string, payload?: unknown) => void;
     on: (event: string, handler: (payload: unknown) => void) => () => void;

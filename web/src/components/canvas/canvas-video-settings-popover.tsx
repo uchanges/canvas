@@ -6,11 +6,11 @@ import { Button } from "antd";
 import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import type { AiConfig } from "@/stores/use-config-store";
+import type { CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 
 type CanvasVideoSettingsPopoverProps = {
-    config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    config: CanvasGenerationConfig;
+    onConfigChange: (key: keyof CanvasGenerationConfig, value: string) => void;
     buttonClassName?: string;
     placement?: "topLeft" | "top" | "topRight" | "bottomLeft" | "bottom" | "bottomRight";
 };
@@ -71,8 +71,8 @@ function VideoSettingsPortal({
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasVideoSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    config: CanvasGenerationConfig;
+    onConfigChange: (key: keyof CanvasGenerationConfig, value: string) => void;
 }) {
     const width = 356;
     const gap = 8;

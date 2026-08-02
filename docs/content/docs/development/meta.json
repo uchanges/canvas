@@ -5,7 +5,6 @@
   "pages": [
     "local-development",
     "canvas-data-structure",
-    "deeix-backend-integration",
-    "local-codex-canvas"
+    "deeix-backend-integration"
   ]
 }

@@ -11,7 +11,7 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { ensurePluginsLoaded } from "@/lib/canvas/plugin-loader";
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { CanvasNodeToolbarItem, CanvasPluginAi, CanvasPluginHost, ModelOption, PluginModelCapability } from "@/types/canvas-plugin";
-import type { CanvasAgentOp } from "@/lib/canvas/canvas-agent-ops";
+import type { CanvasOperation } from "@/lib/canvas/canvas-ops";
 import type { CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
@@ -28,7 +28,7 @@ type PluginHostParams = {
     viewportRef: MutableRefObject<ViewportTransform>;
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     setDialogNodeId: Dispatch<SetStateAction<string | null>>;
-    applyAgentOps: (ops?: CanvasAgentOp[]) => unknown;
+    applyOps: (ops?: CanvasOperation[]) => unknown;
 };
 
 /**
@@ -36,7 +36,7 @@ type PluginHostParams = {
  * 并在挂载时加载已安装的远程插件。返回给画布用于渲染插件面板与工具条。
  */
 export function usePluginHost(params: PluginHostParams) {
-    const { projectId, ensureProjectPersisted, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
+    const { projectId, ensureProjectPersisted, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyOps } = params;
     const [modelOptions, setModelOptions] = useState<ModelOptionsByCapability>(EMPTY_MODEL_OPTIONS);
 
     useEffect(() => {
@@ -135,12 +135,12 @@ export function usePluginHost(params: PluginHostParams) {
                     .filter((node): node is CanvasNodeData => Boolean(node)),
             updateNode: (nodeId, patch) => setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, ...patch } : node))),
             updateMetadata: (nodeId, patch) => setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...patch } } : node))),
-            applyOps: (ops) => applyAgentOps(ops),
+            applyOps,
             ai: createPluginAi,
             openPanel: (nodeId) => setDialogNodeId(nodeId),
             closePanel: () => setDialogNodeId(null),
         }),
-        [applyAgentOps, createPluginAi],
+        [applyOps, createPluginAi],
     );
 
     const renderPluginPanel = useCallback(

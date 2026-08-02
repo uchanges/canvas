@@ -26,8 +26,10 @@ export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: 
 export const videoSizeOptions = sizeOptions.map((item) => ({ value: item.value, label: item.label }));
 export const videoSecondOptions = secondOptions.map((value) => String(value));
 
+type VideoSettingsConfig = Pick<AiConfig, "model" | "videoModel" | "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark"> & { apiFormat?: AiConfig["apiFormat"] };
+
 type VideoSettingsPanelProps = {
-    config: AiConfig;
+    config: VideoSettingsConfig;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
@@ -35,7 +37,7 @@ type VideoSettingsPanelProps = {
 };
 
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
-    if (isSeedanceVideoConfig(config)) {
+    if (isSeedanceVideoConfig({ ...config, apiFormat: config.apiFormat || "openai" })) {
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -8,7 +8,7 @@ import { resolveCanvasAudioModel, streamCanvasAudioTask, type CanvasAudioTaskFil
 import { cancelCanvasImageTask, createCanvasImageTask, resolveCanvasImageTask, streamCanvasImageTask, type CanvasImageJob } from "@/services/api/canvas-image";
 import { resolveCanvasTextModel, streamCanvasTextTask } from "@/services/api/canvas-text";
 import { resolveCanvasVideoModel, streamCanvasVideoTask, type CanvasVideoTaskFile } from "@/services/api/canvas-video";
-import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultCanvasGenerationConfig, type CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 import { collectCanvasFileIds, releaseCanvasFileUrls, resolveCanvasFileUrl, resolveCanvasMediaFile, uploadCanvasFile } from "@/services/api/deeix-files";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -39,9 +39,8 @@ import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { CanvasSidePanel } from "@/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/components/canvas/canvas-zoom-controls";
-import { useAgentStore } from "@/stores/use-agent-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
-import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
+import { useCanvasOps } from "@/pages/canvas/hooks/use-canvas-ops";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
@@ -61,6 +60,7 @@ import {
     imageExtension,
     isAudioFile,
     isGenerationCanceled,
+    isResumableCanvasImageTask,
     resetInterruptedGeneration,
     resolveMetadataReferences,
     sourceNodeReferenceImages,
@@ -152,7 +152,7 @@ function videoTaskOptions(seconds: string) {
     return durationSeconds > 0 ? { durationSeconds } : {};
 }
 
-function audioTaskOptions(config: AiConfig) {
+function audioTaskOptions(config: CanvasGenerationConfig) {
     const instructions = config.audioInstructions.trim();
     return {
         voice: normalizeAudioVoiceValue(config.audioVoice),
@@ -199,14 +199,7 @@ function InfiniteCanvasPage() {
     const nodeRegistryVersion = useNodeRegistryVersion((state) => state.version);
     const params = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
     const projectId = params.id || "";
-    const localAgentConnected = useAgentStore((state) => state.connected);
-    const localAgentActivity = useAgentStore((state) => state.activity);
-    const localAgentEnabled = useAgentStore((state) => state.enabled);
-    const agentPanelOpen = useAgentStore((state) => state.panelOpen);
-    const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
-    const openAgentPanel = useAgentStore((state) => state.openPanel);
     const containerRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<{ nodeId?: string; position?: Position } | null>(null);
@@ -234,10 +227,7 @@ function InfiniteCanvasPage() {
         initialSelectedNodes: [],
     });
 
-    const config = useConfigStore((state) => state.config);
-    const effectiveConfig = useEffectiveConfig();
-    const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const effectiveConfig = defaultCanvasGenerationConfig;
     const addAsset = useAssetStore((state) => state.addAsset);
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
     const hydrated = useCanvasStore((state) => state.hydrated);
@@ -491,7 +481,7 @@ function InfiniteCanvasPage() {
             setHistoryState({ canUndo: false, canRedo: false });
             setProjectLoaded(true);
             const taskNodesById = restoredNodes.reduce((groups, node) => {
-                if (node.metadata?.status !== NODE_STATUS_LOADING || !node.metadata.taskId) return groups;
+                if (node.metadata?.status !== NODE_STATUS_LOADING || !node.metadata.taskId || !isResumableCanvasImageTask(node)) return groups;
                 const taskNodes = groups.get(node.metadata.taskId);
                 if (taskNodes) taskNodes.push(node);
                 else groups.set(node.metadata.taskId, [node]);
@@ -510,11 +500,6 @@ function InfiniteCanvasPage() {
             releaseCanvasFileUrls(new Set([...fileIds, ...collectCanvasFileIds({ nodes: nodesRef.current, chatSessions: chatSessionsRef.current })]));
         };
     }, [authRequired, hydrated, loadProject, loadProjects, navigate, projectId, resumeCanvasImageTask]);
-
-    useEffect(() => {
-        if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
-        if (!searchParams.has("agentUrl")) openAgentPanel();
-    }, [openAgentPanel, projectLoaded, searchParams]);
 
     useEffect(() => {
         if (!projectLoaded || applyingHistoryRef.current || historyPausedRef.current) return;
@@ -566,10 +551,27 @@ function InfiniteCanvasPage() {
             updateProject(projectId, { viewport: viewportRef.current });
             viewportSaveTimerRef.current = null;
         }, 500);
-        return () => {
-            if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
-        };
     }, [projectId, projectLoaded, updateProject, viewport]);
+
+    useEffect(
+        () => () => {
+            if (!viewportSaveTimerRef.current) return;
+            clearTimeout(viewportSaveTimerRef.current);
+            viewportSaveTimerRef.current = null;
+            updateProject(projectId, { viewport: viewportRef.current });
+        },
+        [projectId, updateProject],
+    );
+
+    useEffect(() => {
+        const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+            if (!useCanvasStore.getState().hasPendingSave(projectId)) return;
+            event.preventDefault();
+            event.returnValue = "";
+        };
+        window.addEventListener("beforeunload", warnBeforeUnload);
+        return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+    }, [projectId]);
 
     useLayoutEffect(() => {
         nodesRef.current = nodes;
@@ -808,13 +810,9 @@ function InfiniteCanvasPage() {
         nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections)));
         return map;
     }, [connections, nodes]);
-    const { applyAgentOps } = useAgentBridge({
+    const { applyOps } = useCanvasOps({
         projectId,
         title: currentProject?.title,
-        nodes,
-        connections,
-        selectedNodeIds,
-        viewport,
         nodesRef,
         connectionsRef,
         selectedNodeIdsRef,
@@ -837,7 +835,7 @@ function InfiniteCanvasPage() {
         viewportRef,
         setNodes,
         setDialogNodeId,
-        applyAgentOps,
+        applyOps,
     });
     const createNode = useCallback(
         (type: CanvasNodeTypeId, position?: Position) => {
@@ -1799,7 +1797,7 @@ function InfiniteCanvasPage() {
                     { x: textNode.position.x + textNode.width + gap + configSpec.width / 2, y: centerY },
                     {
                         generationMode: "text",
-                        model: effectiveConfig.textModel || effectiveConfig.model || defaultConfig.textModel,
+                        model: effectiveConfig.textModel || effectiveConfig.model,
                         count: 1,
                         composerContent: `参考图片：@[node:${node.id}]\n任务说明：@[node:${textNode.id}]`,
                     },
@@ -2454,8 +2452,8 @@ function InfiniteCanvasPage() {
                             projectId,
                             { nodeId: videoId, model: videoModel.platformModelName, prompt: effectivePrompt, fileIds: videoFileIds, options: videoTaskOptions(generationConfig.videoSeconds) },
                             controller.signal,
-                            ({ runId, stage }) => {
-                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, taskId: runId || node.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
+                            ({ stage }) => {
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
                             },
                         );
                         const video = await taskOutputVideo(result.files[0]);
@@ -2479,8 +2477,7 @@ function InfiniteCanvasPage() {
                                               generateAudio: generationConfig.videoGenerateAudio,
                                               watermark: generationConfig.videoWatermark,
                                               references: generationReferenceUrls(generationContext),
-                                              taskId: result.runId,
-                                              taskStatus: "succeeded",
+                                               taskStatus: "succeeded",
                                               taskStage: "completed",
                                           },
                                       }
@@ -2522,12 +2519,12 @@ function InfiniteCanvasPage() {
                             projectId,
                             { nodeId: audioId, model: audioModel.platformModelName, prompt: effectivePrompt, options: audioTaskOptions(generationConfig) },
                             controller.signal,
-                            ({ runId, stage }) => {
-                                setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, taskId: runId || node.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
+                            ({ stage }) => {
+                                setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
                             },
                         );
                         const audio = await taskOutputAudio(result.files[0]);
-                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskId: result.runId, taskStatus: "succeeded", taskStage: "completed" } } : node)));
+                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskStatus: "succeeded", taskStage: "completed" } } : node)));
                     } finally {
                         finishGenerationRequest(audioId, controller);
                     }
@@ -2610,7 +2607,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [bindImageTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, persistProjectScene, projectId, startGenerationRequest],
+        [bindImageTask, effectiveConfig, finishGenerationRequest, message, persistProjectScene, projectId, startGenerationRequest],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
@@ -2677,8 +2674,8 @@ function InfiniteCanvasPage() {
                         projectId,
                         { nodeId: node.id, model: videoModel.platformModelName, prompt, fileIds: imageTaskFileIds(retryImages), options: videoTaskOptions(generationConfig.videoSeconds) },
                         controller.signal,
-                        ({ runId, stage }) => {
-                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskId: runId || item.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
+                        ({ stage }) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
                         },
                     );
                     const video = await taskOutputVideo(result.files[0]);
@@ -2701,7 +2698,6 @@ function InfiniteCanvasPage() {
                                               vquality: generationConfig.vquality,
                                               generateAudio: generationConfig.videoGenerateAudio,
                                               watermark: generationConfig.videoWatermark,
-                                              taskId: result.runId,
                                               taskStatus: "succeeded",
                                               taskStage: "completed",
                                           },
@@ -2718,12 +2714,12 @@ function InfiniteCanvasPage() {
                         projectId,
                         { nodeId: node.id, model: audioModel.platformModelName, prompt, options: audioTaskOptions(generationConfig) },
                         controller.signal,
-                        ({ runId, stage }) => {
-                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskId: runId || item.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
+                        ({ stage }) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
                         },
                     );
                     const audio = await taskOutputAudio(result.files[0]);
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskId: result.runId, taskStatus: "succeeded", taskStage: "completed" } } : item)));
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskStatus: "succeeded", taskStage: "completed" } } : item)));
                     return;
                 }
 
@@ -2771,7 +2767,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [bindImageTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, projectId, startGenerationRequest],
+        [bindImageTask, effectiveConfig, finishGenerationRequest, message, projectId, startGenerationRequest],
     );
 
     const generateImageFromTextNode = useCallback(
@@ -2999,9 +2995,6 @@ function InfiniteCanvasPage() {
                     saveStatus={saveStatus}
                     saveError={saveError}
                     onRetrySave={() => retrySaveProject(projectId)}
-                    agentOpen={agentPanelOpen}
-                    compactAgentStatus={{ connected: localAgentConnected, enabled: localAgentEnabled, activity: localAgentActivity }}
-                    onToggleAgent={toggleAgentPanel}
                 />
 
                 <InfiniteCanvas

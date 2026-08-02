@@ -32,7 +32,7 @@ export const imageQualityOptions = qualityOptions.map((item) => ({ value: item.v
 export const imageAspectOptions = aspectOptions.map((item) => ({ value: item.size || item.value, label: item.label }));
 
 type ImageSettingsPanelProps = {
-    config: AiConfig;
+    config: Pick<AiConfig, "quality" | "size" | "count" | "background">;
     onConfigChange: (key: "quality" | "size" | "count" | "background", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { BookOpen, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
@@ -30,9 +30,6 @@ export function CanvasTopBar({
     saveStatus,
     saveError,
     onRetrySave,
-    agentOpen,
-    compactAgentStatus,
-    onToggleAgent,
 }: {
     title: string;
     titleDraft: string;
@@ -55,9 +52,6 @@ export function CanvasTopBar({
     saveStatus: "saved" | "saving" | "error" | "conflict";
     saveError?: string;
     onRetrySave: () => void;
-    agentOpen: boolean;
-    compactAgentStatus: { connected: boolean; enabled: boolean; activity: string };
-    onToggleAgent: () => void;
 }) {
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
@@ -140,21 +134,10 @@ export function CanvasTopBar({
                         )}
                     </div>
                     <CanvasSaveStatus status={saveStatus} error={saveError} onRetry={onRetrySave} />
-                    <CompactAgentStatus status={compactAgentStatus} onClick={onToggleAgent} />
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-1.5">
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />
-                    <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
-                    <Button
-                        type="text"
-                        className="!h-10 !rounded-xl !px-3 !font-medium"
-                        style={{ background: agentOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
-                        icon={<Bot className="size-4" />}
-                        onClick={onToggleAgent}
-                    >
-                        Agent
-                    </Button>
                 </div>
             </div>
             <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
@@ -200,19 +183,6 @@ function MenuLabel({ text, shortcut }: { text: string; shortcut: string }) {
             <span>{text}</span>
             <span className="text-xs opacity-45">{shortcut}</span>
         </span>
-    );
-}
-
-function CompactAgentStatus({ status, onClick }: { status: { connected: boolean; enabled: boolean; activity: string }; onClick: () => void }) {
-    const colorTheme = useThemeStore((state) => state.theme);
-    const theme = canvasThemes[colorTheme];
-    const label = status.connected ? "Codex 已连接" : status.enabled ? `Codex ${status.activity || "连接中"}` : "Codex 未连接";
-    const dotColor = status.connected ? "#22c55e" : status.enabled ? "#f59e0b" : theme.node.muted;
-    return (
-        <button type="button" className="flex h-8 items-center gap-1.5 text-xs transition hover:opacity-75" style={{ color: status.connected ? "#16a34a" : status.enabled ? "#d97706" : theme.node.muted }} onClick={onClick} title="打开本地 Codex 面板">
-            <span className="size-2 rounded-full" style={{ background: dotColor }} />
-            <span className="max-w-[140px] truncate">{label}</span>
-        </button>
     );
 }
 

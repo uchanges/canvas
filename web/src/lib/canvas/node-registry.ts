@@ -47,7 +47,7 @@ export function isRegisteredNodeType(type: string) {
 
 const FALLBACK_SPEC = { width: 340, height: 240, title: "节点", metadata: {} as CanvasNodeDefinition["defaultMetadata"] };
 
-// 提供默认尺寸/标题/初始 metadata,createCanvasNode 与 agent-ops 复用
+// 提供默认尺寸、标题和初始 metadata，供节点创建与批量画布操作复用。
 export function getNodeSpec(type: string) {
     const def = definitions.get(type);
     if (!def) return FALLBACK_SPEC;

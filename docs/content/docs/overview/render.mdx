@@ -1,28 +1,12 @@
 ---
 title: Render 部署
-description: 使用 Render 部署无限画布
+description: 将静态画布前端部署到 Render 并连接 DEEIX
 ---
 
 # Render 部署
 
-点击下面链接即可部署到 Render：
+将仓库作为静态站点构建，根目录设为 `web`，构建命令为 `npm install && npm run build`，发布目录为 `dist`。
 
-[部署到 Render](https://render.com/deploy?repo=https://github.com/basketikun/infinite-canvas)
+设置构建期变量 `VITE_DEEIX_API_BASE_URL` 和 `VITE_DEEIX_LOGIN_URL`，或使用同源反向代理时保留默认 `/api/v1` 与 `/login`。生产环境应由 DEEIX 或网关正确配置 CORS、Cookie 与 HTTPS。
 
-## 部署步骤
-
-1. 点击 `Deploy to Render`。
-2. 登录 Render，并按页面提示连接 GitHub。
-3. 确认部署。
-
-部署完成后，打开 Render 分配的 `.onrender.com` 域名即可访问。
-
-## 免费版说明
-
-默认使用 Render 免费 Web Service：
-
-- 空闲约 15 分钟后会休眠，下次访问会自动唤醒。
-- 当前主应用数据默认保存在浏览器本地；第三方提示词由浏览器前端直连拉取。
-- 适合体验和演示，不适合长期保存正式数据。
-
-长期使用建议优先部署到 Vercel，或自行配置 WebDAV 同步浏览器本地数据。
+Render 只托管画布静态文件，不替代 DEEIX Go API、Worker、数据库或文件存储。

@@ -10,7 +10,7 @@ const speedOptions = ["0.75", "1", "1.25", "1.5"];
 type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions";
 
 type AudioSettingsPanelProps = {
-    config: AiConfig;
+    config: Pick<AiConfig, "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions">;
     onConfigChange: (key: AudioSettingKey, value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;

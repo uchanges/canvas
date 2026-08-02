@@ -25,12 +25,14 @@ type CanvasStore = {
     updateProject: (id: string, patch: CanvasProjectPatch) => void;
     flushSaveProject: (id: string) => Promise<boolean>;
     retrySaveProject: (id: string) => void;
+    hasPendingSave: (id: string) => boolean;
 };
 
 type SaveTask = {
     timer: ReturnType<typeof setTimeout> | null;
     saving: boolean;
     version: number;
+    savedVersion: number;
     promise: Promise<boolean> | null;
 };
 
@@ -40,7 +42,7 @@ const SAVE_DELAY = 800;
 function taskFor(id: string) {
     let task = saveTasks.get(id);
     if (!task) {
-        task = { timer: null, saving: false, version: 0, promise: null };
+        task = { timer: null, saving: false, version: 0, savedVersion: 0, promise: null };
         saveTasks.set(id, task);
     }
     return task;
@@ -87,6 +89,7 @@ async function flushSave(id: string) {
             if (changedWhileSaving) {
                 queueSave(id, 0);
             } else {
+                task.savedVersion = version;
                 setSaveState(id, "saved");
             }
             return true;
@@ -169,7 +172,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         set((state) => ({
             projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
         }));
-        if (get().saveStates[id] !== "conflict") queueSave(id);
+        if (get().saveStates[id] !== "conflict") {
+            setSaveState(id, "saving");
+            queueSave(id);
+        }
     },
     flushSaveProject: async (id) => {
         const task = taskFor(id);
@@ -186,5 +192,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     retrySaveProject: (id) => {
         if (get().saveStates[id] === "conflict") return;
         queueSave(id, 0);
+    },
+    hasPendingSave: (id) => {
+        const task = saveTasks.get(id);
+        return Boolean(task && (task.saving || task.timer || task.version !== task.savedVersion));
     },
 }));

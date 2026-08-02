@@ -13,7 +13,7 @@ const reasoningEffortOptions: Array<{ value: ReasoningEffort; label: string }> =
 ];
 
 type TextSettingsPanelProps = {
-    config: AiConfig;
+    config: Pick<AiConfig, "reasoningEffort">;
     onConfigChange: (key: "reasoningEffort", value: ReasoningEffort) => void;
     theme: CanvasTheme;
     className?: string;

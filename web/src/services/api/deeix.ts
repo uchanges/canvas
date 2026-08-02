@@ -119,29 +119,40 @@ export async function streamDeeix<T>(path: string, init: RequestInit, onEvent: (
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, "\n");
-        let boundary = buffer.indexOf("\n\n");
-        while (boundary >= 0) {
-            const frame = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            const event = frame.match(/^event:\s*(.+)$/m)?.[1] || "message";
-            const text = frame
-                .split("\n")
-                .filter((line) => line.startsWith("data:"))
-                .map((line) => line.slice(5).trimStart())
-                .join("\n");
-            if (text) {
-                try {
-                    await onEvent(event, JSON.parse(text) as T);
-                } catch (error) {
-                    if (error instanceof SyntaxError) throw new DeeixApiError("DEEIX 流式响应格式错误", response.status);
-                    throw error;
-                }
-            }
-            boundary = buffer.indexOf("\n\n");
+    const consumeFrame = async (frame: string) => {
+        const event = frame.match(/^event:\s*(.+)$/m)?.[1] || "message";
+        const text = frame
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+        if (!text) return;
+        try {
+            await onEvent(event, JSON.parse(text) as T);
+        } catch (error) {
+            if (error instanceof SyntaxError) throw new DeeixApiError("DEEIX 流式响应格式错误", response.status);
+            throw error;
         }
-        if (done) break;
+    };
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, "\n");
+            let boundary = buffer.indexOf("\n\n");
+            while (boundary >= 0) {
+                await consumeFrame(buffer.slice(0, boundary));
+                buffer = buffer.slice(boundary + 2);
+                boundary = buffer.indexOf("\n\n");
+            }
+            if (done) {
+                if (buffer.trim()) await consumeFrame(buffer);
+                return;
+            }
+        }
+    } catch (error) {
+        await reader.cancel(error).catch(() => undefined);
+        throw error;
+    } finally {
+        reader.releaseLock();
     }
 }

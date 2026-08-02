@@ -1,6 +1,6 @@
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
-import type { AiConfig } from "@/stores/use-config-store";
+import type { CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 import type { CanvasMediaFile } from "@/services/api/deeix-files";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/types/canvas";
@@ -39,7 +39,7 @@ export function referenceUrl(image: ReferenceImage) {
     return image.fileId || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
 }
 
-export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {
+export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: CanvasGenerationConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {
     return {
         generationType: type,
         model: config.model,
@@ -51,7 +51,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
     };
 }
 
-export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetadata {
+export function buildAudioGenerationMetadata(config: CanvasGenerationConfig): CanvasNodeMetadata {
     return {
         model: config.model,
         audioVoice: config.audioVoice,

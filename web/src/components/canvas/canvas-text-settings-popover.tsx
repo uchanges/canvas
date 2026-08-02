@@ -6,11 +6,11 @@ import { Button } from "antd";
 import { reasoningEffortLabel, TextSettingsPanel } from "@/components/text-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
-import type { AiConfig, ReasoningEffort } from "@/stores/use-config-store";
+import type { CanvasGenerationConfig, CanvasReasoningEffort } from "@/lib/canvas/canvas-generation-config";
 
 type CanvasTextSettingsPopoverProps = {
-    config: AiConfig;
-    onConfigChange: (key: "reasoningEffort", value: ReasoningEffort) => void;
+    config: CanvasGenerationConfig;
+    onConfigChange: (key: "reasoningEffort", value: CanvasReasoningEffort) => void;
     buttonClassName?: string;
     placement?: "topLeft" | "top" | "topRight" | "bottomLeft" | "bottom" | "bottomRight";
 };
@@ -60,7 +60,7 @@ function TextSettingsPortal({ buttonRect, panelRef, placement, theme, config, on
     panelRef: RefObject<HTMLDivElement | null>;
     placement: CanvasTextSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    config: AiConfig;
+    config: CanvasGenerationConfig;
     onConfigChange: CanvasTextSettingsPopoverProps["onConfigChange"];
 }) {
     const width = 356;

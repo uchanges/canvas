@@ -2,12 +2,13 @@ import type { CSSProperties } from "react";
 import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings2, Square, Video } from "lucide-react";
 import { Button, Segmented } from "antd";
 
-import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultCanvasGenerationConfig, resolveCanvasModelForCapability, type CanvasGenerationConfig } from "@/lib/canvas/canvas-generation-config";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasDeeixAudioModelPicker } from "./canvas-deeix-audio-model-picker";
+import { CanvasDeeixImageModelPicker } from "./canvas-deeix-image-model-picker";
+import { CanvasDeeixTextModelPicker } from "./canvas-deeix-text-model-picker";
 import { CanvasDeeixVideoModelPicker } from "./canvas-deeix-video-model-picker";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
@@ -25,8 +26,7 @@ type CanvasConfigNodePanelProps = {
 };
 
 export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigChange, onGenerate, onStop, onComposerToggle }: CanvasConfigNodePanelProps) {
-    const globalConfig = useEffectiveConfig();
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const globalConfig = defaultCanvasGenerationConfig;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = node.metadata?.generationMode || "image";
     const config = buildNodeConfig(globalConfig, node, mode);
@@ -99,7 +99,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                {mode === "video" ? <CanvasDeeixVideoModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" /> : mode === "audio" ? <CanvasDeeixAudioModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" /> : <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />}
+                {mode === "image" ? <CanvasDeeixImageModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" /> : mode === "text" ? <CanvasDeeixTextModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" /> : mode === "video" ? <CanvasDeeixVideoModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" /> : <CanvasDeeixAudioModelPicker value={node.metadata?.model} onChange={(model) => onConfigChange(node.id, { model })} className="canvas-compact-control h-10 !w-full !max-w-none" />}
                 {mode === "video" ? (
                     <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                 ) : mode === "image" ? (
@@ -147,27 +147,27 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
     );
 }
 
-function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
+function buildNodeConfig(globalConfig: CanvasGenerationConfig, node: CanvasNodeData, mode: CanvasGenerationMode): CanvasGenerationConfig {
     return {
         ...globalConfig,
-        model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
-        reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
-        quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
-        size: node.metadata?.size || globalConfig.size || defaultConfig.size,
-        background: node.metadata?.background ?? globalConfig.background ?? defaultConfig.background,
-        videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
-        videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
-        videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
-        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
-        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
-        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
-        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
-        count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
+        model: resolveCanvasModelForCapability(globalConfig, node.metadata?.model, mode),
+        reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultCanvasGenerationConfig.reasoningEffort,
+        quality: node.metadata?.quality || globalConfig.quality || defaultCanvasGenerationConfig.quality,
+        size: node.metadata?.size || globalConfig.size || defaultCanvasGenerationConfig.size,
+        background: node.metadata?.background ?? globalConfig.background ?? defaultCanvasGenerationConfig.background,
+        videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultCanvasGenerationConfig.videoSeconds,
+        vquality: node.metadata?.vquality || globalConfig.vquality || defaultCanvasGenerationConfig.vquality,
+        videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultCanvasGenerationConfig.videoGenerateAudio,
+        videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultCanvasGenerationConfig.videoWatermark,
+        audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultCanvasGenerationConfig.audioVoice,
+        audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultCanvasGenerationConfig.audioFormat,
+        audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultCanvasGenerationConfig.audioSpeed,
+        audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultCanvasGenerationConfig.audioInstructions,
+        count: String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultCanvasGenerationConfig.count),
     };
 }
 
-function videoConfigPatch(key: keyof AiConfig, value: string) {
+function videoConfigPatch(key: keyof CanvasGenerationConfig, value: string) {
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
