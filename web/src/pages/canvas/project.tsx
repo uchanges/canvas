@@ -362,6 +362,8 @@ function InfiniteCanvasPage() {
         [flushSaveProject, projectId, updateProject],
     );
 
+    const ensureProjectPersisted = useCallback(() => persistProjectScene(nodesRef.current, connectionsRef.current), [persistProjectScene]);
+
     const resumeCanvasImageTask = useCallback(
         async (taskId: string, taskNodes: CanvasNodeData[], controller: AbortController) => {
             const root = taskNodes.find((node) => node.metadata?.isBatchRoot) || taskNodes.find((node) => node.type === CanvasNodeType.Image && !node.metadata?.batchRootId) || taskNodes.find((node) => !node.metadata?.batchRootId) || taskNodes[0];
@@ -827,9 +829,8 @@ function InfiniteCanvasPage() {
     });
 
     const { pluginHost, renderPluginPanel, buildNodeToolbarItems } = usePluginHost({
-        effectiveConfig,
-        isAiConfigReady,
-        openConfigDialog,
+        projectId,
+        ensureProjectPersisted,
         theme,
         nodesRef,
         connectionsRef,

@@ -128,6 +128,7 @@ SDK 导出的 hooks(`useState/useEffect/useMemo/useRef/...`)运行时转发宿�
 | `ctx.getUpstream()` / `ctx.getDownstream()` | 取上/下游相连节点 |
 | `ctx.applyOps(ops)` | 用画布指令集增删节点/连线、选择、触发生成(见下) |
 | `ctx.emit(event, payload)` / `ctx.on(event, handler)` | 节点/插件间事件通信 |
+| `ctx.ai` | 通过 DEEIX 执行图片、视频、文本和音频任务，不暴露上游 API Key |
 | `ctx.storage` | 插件私有持久化(按插件 id 命名空间) |
 
 > `metadata` 的**内置字段**(content、status、model…)是强类型;插件写入的**自定义字段**读出为 `unknown`,按需 `as` 断言(参考 `sticky-note` 的 `pluginColor`)。
@@ -147,6 +148,18 @@ ctx.applyOps([
 ]);
 ```
 
+### `ctx.ai`
+
+`ctx.ai` 的 `generateImage`、`generateVideo`、`generateText` 和 `generateAudio` 都会按当前登录账号的 DEEIX 模型权限、计费和审计执行。`listModels(capability)` 返回当前账号可用模型；传入 `references` 时宿主会先上传参考图片，再以服务端文件引用提交。音频任务目前只支持文本输入。
+
+```tsx
+const result = await ctx.ai.generateText("为这张便利贴写一句摘要", {
+    model: ctx.ai.defaultModel("text"),
+    onDelta: (text) => ctx.updateMetadata({ content: text }),
+});
+ctx.updateMetadata({ content: result.text });
+```
+
 ## 重依赖 / 资源
 
 - **重依赖**(three.js、marked 等):不要打进 bundle,运行时 `await import("https://esm.sh/...")` 动态加载(esbuild 自动 external);在 `src/env.d.ts` 声明该模块以通过 tsc。参考 `panorama/`、`markdown/`。
@@ -159,5 +172,5 @@ ctx.applyOps([
 
 ## 注意
 
-- 插件代码会在画布页面内**直接执行**,可访问浏览器本地数据(含 AI API Key)。发布前请自审,用户也只应安装可信来源。
+- 插件代码会在画布页面内**直接执行**，发布前请自审，用户也只应安装可信来源。插件应通过 `ctx.ai` 请求 AI 能力，不要读取或依赖浏览器中的上游 API Key。
 - 交互控件记得 `onMouseDown={(e) => e.stopPropagation()}`(避免触发节点拖拽),滚动区域加 `onWheel={(e) => e.stopPropagation()}` 与容器 `data-canvas-no-zoom`(避免被画布缩放拦截)。

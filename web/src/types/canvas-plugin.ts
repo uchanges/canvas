@@ -8,7 +8,7 @@ import type { CanvasResourceKind } from "@/lib/canvas/canvas-resource-references
 // 插件节点作为上游输入被消费时输出的资源
 export type CanvasNodeResource = { kind: CanvasResourceKind; text?: string; url?: string };
 
-// --- AI 生成能力(生图/生视频/生文本),由宿主注入,复用宿主模型/密钥配置 ---
+// --- AI 生成能力(生图/生视频/生文本/生音频),由宿主注入并通过 DEEIX 执行 ---
 export type GenerateOptions = { signal?: AbortSignal; references?: string[]; model?: string };
 export type GenerateImageOptions = GenerateOptions & { count?: number; size?: string };
 export type GenerateImageResult = { images: string[] };
@@ -16,6 +16,8 @@ export type GenerateVideoOptions = GenerateOptions & { size?: string; seconds?: 
 export type GenerateVideoResult = { url: string; mimeType: string; width?: number; height?: number; durationMs?: number };
 export type GenerateTextOptions = { signal?: AbortSignal; model?: string; system?: string; onDelta?: (text: string) => void };
 export type GenerateTextResult = { text: string };
+export type GenerateAudioOptions = GenerateOptions & { voice?: string; format?: string; speed?: number; instructions?: string };
+export type GenerateAudioResult = { url: string; mimeType: string; durationMs?: number };
 export type PluginModelCapability = "image" | "video" | "text" | "audio";
 export type ModelOption = { value: string; label: string };
 
@@ -23,6 +25,7 @@ export type CanvasPluginAi = {
     generateImage: (prompt: string, options?: GenerateImageOptions) => Promise<GenerateImageResult>;
     generateVideo: (prompt: string, options?: GenerateVideoOptions) => Promise<GenerateVideoResult>;
     generateText: (prompt: string, options?: GenerateTextOptions) => Promise<GenerateTextResult>;
+    generateAudio: (prompt: string, options?: GenerateAudioOptions) => Promise<GenerateAudioResult>;
     listModels: (capability?: PluginModelCapability) => ModelOption[];
     defaultModel: (capability: PluginModelCapability) => string;
 };
@@ -58,7 +61,7 @@ export type CanvasNodeContext = {
     // 节点间/插件间通信
     emit: (event: string, payload?: unknown) => void;
     on: (event: string, handler: (payload: unknown) => void) => () => void;
-    // AI 生成能力(生图/生视频/生文本),复用宿主模型配置
+    // AI 生成能力(生图/生视频/生文本/生音频)，统一通过 DEEIX 执行
     ai: CanvasPluginAi;
     // 打开/关闭本节点下方的自定义 Panel(需在节点定义里提供 Panel)
     openPanel: () => void;
@@ -83,8 +86,8 @@ export type CanvasPluginHost = {
     updateNode: (nodeId: string, patch: Partial<Pick<CanvasNodeData, "title" | "width" | "height">>) => void;
     updateMetadata: (nodeId: string, patch: CanvasNodeMetadata) => void;
     applyOps: (ops: CanvasAgentOp[]) => void;
-    // AI 生成能力,复用画布页面当前的模型/密钥配置
-    ai: CanvasPluginAi;
+    // AI 生成能力按节点绑定，服务端据此验证项目归属并记录任务审计
+    ai: (nodeId: string) => CanvasPluginAi;
     // 打开/关闭指定节点下方的自定义 Panel
     openPanel: (nodeId: string) => void;
     closePanel: () => void;

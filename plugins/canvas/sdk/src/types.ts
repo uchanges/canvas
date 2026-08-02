@@ -136,23 +136,23 @@ export type CanvasResourceKind = "image" | "video" | "audio" | "text";
 export type CanvasNodeResource = { kind: CanvasResourceKind; text?: string; url?: string };
 
 // ---------------------------------------------------------------------------
-// AI 生成:插件直接复用宿主的模型/密钥配置发起生成(生图/生视频/生文本/生音频)
+// AI 生成:插件调用宿主注入的 DEEIX 能力发起生成(生图/生视频/生文本/生音频)
 //
-// 插件本身拿不到 API Key 与模型配置,这些能力由宿主注入。前置/系统提示词由
+// 插件本身拿不到 API Key，模型权限、计费和审计均由 DEEIX 处理。前置/系统提示词由
 // 插件自行拼进 prompt(宿主不感知),因此不同插件可各自定制自己的提示词策略。
-// 若宿主 AI 配置未就绪,会抛错(并由宿主提示用户去配置),插件用 try/catch 处理即可。
+// 任务失败会抛出服务端返回的错误，插件用 try/catch 处理即可。
 // ---------------------------------------------------------------------------
 
 // 生成公共可选项;references 为图生图/图生视频的参考图(dataURL 或可访问 URL)
 export type GenerateOptions = {
     signal?: AbortSignal;
     references?: string[];
-    model?: string; // 指定模型(取自 ai.listModels 的 value);缺省用宿主当前配置
+    model?: string; // 指定模型(取自 ai.listModels 的 value);缺省使用当前账号的第一个可用模型
 };
 
 export type GenerateImageOptions = GenerateOptions & {
     count?: number; // 期望生成张数(宿主会按模型上限裁剪)
-    size?: string; // 形如 "1024x1024" / "auto";缺省用宿主当前配置
+    size?: string; // 形如 "1024x1024" / "auto"
 };
 
 export type GenerateImageResult = {
@@ -176,12 +176,25 @@ export type GenerateVideoResult = {
 export type GenerateTextOptions = {
     signal?: AbortSignal;
     model?: string;
-    system?: string; // 附加系统提示词(拼在宿主系统提示之后)
+    system?: string; // 附加系统提示词(拼在本次任务提示词之前)
     onDelta?: (text: string) => void; // 流式增量回调
 };
 
 export type GenerateTextResult = {
     text: string;
+};
+
+export type GenerateAudioOptions = GenerateOptions & {
+    voice?: string;
+    format?: string;
+    speed?: number;
+    instructions?: string;
+};
+
+export type GenerateAudioResult = {
+    url: string;
+    mimeType: string;
+    durationMs?: number;
 };
 
 // 一个可选模型:value 传回给 generateXxx({ model }),label 用于展示
@@ -193,9 +206,10 @@ export type CanvasPluginAi = {
     generateImage: (prompt: string, options?: GenerateImageOptions) => Promise<GenerateImageResult>;
     generateVideo: (prompt: string, options?: GenerateVideoOptions) => Promise<GenerateVideoResult>;
     generateText: (prompt: string, options?: GenerateTextOptions) => Promise<GenerateTextResult>;
-    // 列出某能力下用户已配置的可选模型;不传能力则返回全部
+    generateAudio: (prompt: string, options?: GenerateAudioOptions) => Promise<GenerateAudioResult>;
+    // 列出当前账号在 DEEIX 上可用的模型;不传能力则返回全部
     listModels: (capability?: ModelCapability) => ModelOption[];
-    // 该能力当前默认选中的模型 value(可作为下拉框初始值)
+    // 该能力第一个可用模型的 value(可作为下拉框初始值)
     defaultModel: (capability: ModelCapability) => string;
 };
 
@@ -228,7 +242,7 @@ export type CanvasNodeContext = {
     // 节点间/插件间通信
     emit: (event: string, payload?: unknown) => void;
     on: (event: string, handler: (payload: unknown) => void) => () => void;
-    // AI 生成能力(生图/生视频/生文本),复用宿主模型配置
+    // AI 生成能力(生图/生视频/生文本/生音频)，统一通过 DEEIX 执行
     ai: CanvasPluginAi;
     // 打开/关闭本节点下方的自定义 Panel(需在节点定义里提供 Panel)
     openPanel: () => void;
