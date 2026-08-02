@@ -4,10 +4,10 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 
-import { requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration } from "@/services/api/audio";
 import { requestVideoGeneration, type VideoGenerationResult } from "@/services/api/video";
 import { cancelCanvasImageTask, createCanvasImageTask, resolveCanvasImageTask, streamCanvasImageTask, type CanvasImageJob } from "@/services/api/canvas-image";
+import { resolveCanvasTextModel, streamCanvasTextTask } from "@/services/api/canvas-text";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { collectCanvasFileIds, releaseCanvasFileUrls, resolveCanvasFileUrl, uploadCanvasFile } from "@/services/api/deeix-files";
 import { nanoid } from "nanoid";
@@ -28,7 +28,7 @@ import { CanvasNodeCropDialog, type CanvasImageCropRect } from "@/components/can
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
-import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
+import { buildNodeGenerationContext, buildNodeGenerationInputs, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
@@ -146,6 +146,10 @@ function imageTaskFileIds(images: ReferenceImage[]) {
 
 function imageTaskStatus(job: Pick<CanvasImageJob, "id" | "status" | "stage">): CanvasNodeMetadata {
     return { taskId: job.id, taskStatus: job.status, taskStage: job.stage };
+}
+
+function textTaskOptions(reasoningEffort: CanvasNodeMetadata["reasoningEffort"]) {
+    return reasoningEffort && reasoningEffort !== "auto" ? { reasoning: { effort: reasoningEffort } } : {};
 }
 
 async function taskOutputImage(output: CanvasImageJob["outputs"][number]) {
@@ -328,14 +332,14 @@ function InfiniteCanvasPage() {
         });
     }, []);
 
-    const persistImageTaskScene = useCallback(
+    const persistProjectScene = useCallback(
         async (nextNodes: CanvasNodeData[], nextConnections: CanvasConnection[]) => {
             nodesRef.current = nextNodes;
             connectionsRef.current = nextConnections;
             setNodes(nextNodes);
             setConnections(nextConnections);
             updateProject(projectId, { nodes: nextNodes, connections: nextConnections });
-            if (!(await flushSaveProject(projectId))) throw new Error("画布保存失败，无法提交图片任务");
+            if (!(await flushSaveProject(projectId))) throw new Error("画布保存失败，无法提交生成任务");
         },
         [flushSaveProject, projectId, updateProject],
     );
@@ -1882,7 +1886,7 @@ function InfiniteCanvasPage() {
                     height: node.height,
                     metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
                 };
-                await persistImageTaskScene([...nodesRef.current, child], [...connectionsRef.current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+                await persistProjectScene([...nodesRef.current, child], [...connectionsRef.current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
                 setSelectedNodeIds(new Set([childId]));
                 setSelectedConnectionId(null);
                 setDialogNodeId(childId);
@@ -1905,7 +1909,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [bindImageTask, effectiveConfig, finishGenerationRequest, message, persistImageTaskScene, projectId, startGenerationRequest],
+        [bindImageTask, effectiveConfig, finishGenerationRequest, message, persistProjectScene, projectId, startGenerationRequest],
     );
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
@@ -1949,7 +1953,7 @@ function InfiniteCanvasPage() {
                 const taskConfig = { ...generationConfig, model: task.model, count: String(task.outputCount) };
                 const generationMetadata = buildImageGenerationMetadata("edit", taskConfig, 1, [source]);
                 setAngleNodeId(null);
-                await persistImageTaskScene(
+                await persistProjectScene(
                     [
                         ...nodesRef.current,
                         {
@@ -1985,7 +1989,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [bindImageTask, effectiveConfig, finishGenerationRequest, message, persistImageTaskScene, projectId, startGenerationRequest],
+        [bindImageTask, effectiveConfig, finishGenerationRequest, message, persistProjectScene, projectId, startGenerationRequest],
     );
 
     const handleFontSizeChange = useCallback((nodeId: string, fontSize: number) => {
@@ -2185,7 +2189,7 @@ function InfiniteCanvasPage() {
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
-            if (mode !== "image" && !isAiConfigReady(generationConfig, generationConfig.model)) {
+            if (mode !== "image" && mode !== "text" && !isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
             }
@@ -2352,7 +2356,7 @@ function InfiniteCanvasPage() {
                         ...childNodes,
                     ];
                     const nextConnections = [...connectionsRef.current, ...batchConnections];
-                    await persistImageTaskScene(nextNodes, nextConnections);
+                    await persistProjectScene(nextNodes, nextConnections);
                     setSelectedNodeIds(new Set([nodeId]));
                     setSelectedConnectionId(null);
                     setDialogNodeId(nodeId);
@@ -2493,8 +2497,9 @@ function InfiniteCanvasPage() {
                     return;
                 }
 
-                let streamed = "";
                 const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
+                const textModel = await resolveCanvasTextModel(sourceNode?.metadata?.model);
+                const textFileIds = imageTaskFileIds(generationContext.referenceImages);
                 const textCount = isConfigNode ? getGenerationCount(generationConfig.count) : 1;
                 const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
                 const textConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
@@ -2512,10 +2517,12 @@ function InfiniteCanvasPage() {
                         },
                         width: textConfig.width,
                         height: textConfig.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, fontSize: 14, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort },
+                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, fontSize: 14, model: textModel.platformModelName, reasoningEffort: generationConfig.reasoningEffort },
                     }));
-                    setNodes((prev) => [...prev.map((node) => (node.id === nodeId && isConfigNode ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes]);
-                    setConnections((prev) => [...prev, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))]);
+                    await persistProjectScene(
+                        [...nodesRef.current.map((node) => (node.id === nodeId && isConfigNode ? { ...node, metadata: { ...node.metadata, model: textModel.platformModelName, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes],
+                        [...connectionsRef.current, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))],
+                    );
                 }
 
                 const controller = runController;
@@ -2523,28 +2530,24 @@ function InfiniteCanvasPage() {
                 textTargetIds.forEach((targetNodeId) => startGenerationRequest(targetNodeId, nodeId, nodeId, controller));
                 const answers = await Promise.all(
                     textTargetIds.map((targetNodeId) => {
-                        let localStreamed = "";
-                        return requestImageQuestion(
-                            generationConfig,
-                            buildNodeResponseMessages({ ...generationContext, prompt: effectivePrompt }),
+                        return streamCanvasTextTask(
+                            projectId,
+                            { nodeId: targetNodeId, model: textModel.platformModelName, prompt: effectivePrompt, fileIds: textFileIds, options: textTaskOptions(generationConfig.reasoningEffort) },
+                            controller.signal,
                             (text) => {
-                                localStreamed = text;
-                                streamed = text;
-                                if (isConfigNode) return;
                                 setNodes((prev) => prev.map((node) => (node.id === targetNodeId ? { ...node, type: CanvasNodeType.Text, metadata: { ...node.metadata, content: text, status: NODE_STATUS_LOADING } } : node)));
                             },
-                            { signal: controller.signal },
                         )
-                            .then((answer) => ({ nodeId: targetNodeId, content: answer || localStreamed }))
+                            .then((answer) => ({ nodeId: targetNodeId, ...answer }))
                             .finally(() => finishGenerationRequest(targetNodeId, controller));
                     }),
                 );
                 if (controller.signal.aborted) return;
-                const answerByNodeId = new Map(answers.map((item) => [item.nodeId, item.content]));
+                const answerByNodeId = new Map(answers.map((item) => [item.nodeId, item]));
                 setNodes((prev) =>
                     prev.map((node) =>
                         childIds.includes(node.id)
-                            ? { ...node, metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS } }
+                            ? { ...node, metadata: { ...node.metadata, content: answerByNodeId.get(node.id)?.content || "", model: answerByNodeId.get(node.id)?.model || textModel.platformModelName, status: NODE_STATUS_SUCCESS } }
                             : node.id === nodeId && isConfigNode
                               ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } }
                               : node.id === nodeId && !editingTextNode
@@ -2552,7 +2555,7 @@ function InfiniteCanvasPage() {
                                       ...node,
                                       type: CanvasNodeType.Text,
                                       title: prompt.slice(0, 32) || "Generated Text",
-                                      metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
+                                      metadata: { ...node.metadata, content: answerByNodeId.get(node.id)?.content || "", model: answerByNodeId.get(node.id)?.model || textModel.platformModelName, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
                                   }
                                 : node,
                     ),
@@ -2570,7 +2573,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [bindImageTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, projectId, startGenerationRequest],
+        [bindImageTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, persistProjectScene, projectId, startGenerationRequest],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
@@ -2593,7 +2596,7 @@ function InfiniteCanvasPage() {
                           count: "1",
                       }
                     : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
-            if (node.type !== CanvasNodeType.Image && !isAiConfigReady(generationConfig, generationConfig.model)) {
+            if (node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Text && !isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
             }
@@ -2622,17 +2625,16 @@ function InfiniteCanvasPage() {
             try {
                 if (node.type === CanvasNodeType.Text) {
                     if (!context) return;
-                    let streamed = "";
-                    const answer = await requestImageQuestion(
-                        generationConfig,
-                        buildNodeResponseMessages({ ...context, prompt }),
+                    const textModel = await resolveCanvasTextModel(node.metadata?.model);
+                    const answer = await streamCanvasTextTask(
+                        projectId,
+                        { nodeId: node.id, model: textModel.platformModelName, prompt, fileIds: imageTaskFileIds(context.referenceImages), options: textTaskOptions(generationConfig.reasoningEffort) },
+                        controller.signal,
                         (text) => {
-                            streamed = text;
                             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, content: text, status: NODE_STATUS_LOADING } } : item)));
                         },
-                        { signal: controller.signal },
                     );
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, content: answer || streamed, prompt, status: NODE_STATUS_SUCCESS } } : item)));
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, content: answer.content, prompt, model: answer.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS } } : item)));
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
