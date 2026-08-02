@@ -4,14 +4,15 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 
-import { requestAudioGeneration } from "@/services/api/audio";
+import { resolveCanvasAudioModel, streamCanvasAudioTask, type CanvasAudioTaskFile } from "@/services/api/canvas-audio";
 import { cancelCanvasImageTask, createCanvasImageTask, resolveCanvasImageTask, streamCanvasImageTask, type CanvasImageJob } from "@/services/api/canvas-image";
 import { resolveCanvasTextModel, streamCanvasTextTask } from "@/services/api/canvas-text";
 import { resolveCanvasVideoModel, streamCanvasVideoTask, type CanvasVideoTaskFile } from "@/services/api/canvas-video";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { collectCanvasFileIds, releaseCanvasFileUrls, resolveCanvasFileUrl, resolveCanvasMediaFile, uploadCanvasFile } from "@/services/api/deeix-files";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -151,6 +152,16 @@ function videoTaskOptions(seconds: string) {
     return durationSeconds > 0 ? { durationSeconds } : {};
 }
 
+function audioTaskOptions(config: AiConfig) {
+    const instructions = config.audioInstructions.trim();
+    return {
+        voice: normalizeAudioVoiceValue(config.audioVoice),
+        response_format: normalizeAudioFormatValue(config.audioFormat),
+        speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
+        ...(instructions ? { instructions } : {}),
+    };
+}
+
 async function taskOutputImage(output: CanvasImageJob["outputs"][number]) {
     return {
         fileId: output.file_id,
@@ -164,6 +175,10 @@ async function taskOutputImage(output: CanvasImageJob["outputs"][number]) {
 
 function taskOutputVideo(output: CanvasVideoTaskFile) {
     return resolveCanvasMediaFile(output.file_id, output.mime_type || "video/mp4", output.size_bytes || 0);
+}
+
+function taskOutputAudio(output: CanvasAudioTaskFile) {
+    return resolveCanvasMediaFile(output.file_id, output.mime_type || "audio/mpeg", output.size_bytes || 0);
 }
 
 export default function CanvasPage() {
@@ -2192,10 +2207,6 @@ function InfiniteCanvasPage() {
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
-            if (mode === "audio" && !isAiConfigReady(generationConfig, generationConfig.model)) {
-                openConfigDialog(true);
-                return;
-            }
 
             // 插件节点声明了 useBuiltinPanel.writeBackToSelf:复用内置面板生成,但结果写回节点自身。
             // 目前支持 image 模式(全景等展示型节点),前缀由 useBuiltinPanel.promptPrefix 指定。
@@ -2482,6 +2493,8 @@ function InfiniteCanvasPage() {
                 }
 
                 if (mode === "audio") {
+                    if (generationContext.referenceImages.length || generationContext.referenceVideos.length || generationContext.referenceAudios.length) throw new Error("DEEIX Canvas 音频任务当前仅支持文本输入");
+                    const audioModel = await resolveCanvasAudioModel(sourceNode?.metadata?.model);
                     const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
                     const isEmptyAudioNode = sourceNode?.type === CanvasNodeType.Audio && !sourceNode.metadata?.content;
                     const audioId = isEmptyAudioNode ? nodeId : nanoid();
@@ -2493,19 +2506,27 @@ function InfiniteCanvasPage() {
                         position: isEmptyAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
                         width: isEmptyAudioNode ? sourceNode.width : spec.width,
                         height: isEmptyAudioNode ? sourceNode.height : spec.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
+                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig), model: audioModel.platformModelName },
                     };
                     pendingChildIds = [audioId];
-                    setNodes((prev) =>
+                    const nextNodes =
                         isEmptyAudioNode
-                            ? prev.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node))
-                            : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
-                    );
-                    if (!isEmptyAudioNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }]);
+                            ? nodesRef.current.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node))
+                            : [...nodesRef.current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode];
+                    const nextConnections = isEmptyAudioNode ? connectionsRef.current : [...connectionsRef.current, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }];
+                    await persistProjectScene(nextNodes, nextConnections);
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
-                        const audio = await uploadCanvasFile(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal }), "generated-audio");
-                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig) } } : node)));
+                        const result = await streamCanvasAudioTask(
+                            projectId,
+                            { nodeId: audioId, model: audioModel.platformModelName, prompt: effectivePrompt, options: audioTaskOptions(generationConfig) },
+                            controller.signal,
+                            ({ runId, stage }) => {
+                                setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, taskId: runId || node.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : node)));
+                            },
+                        );
+                        const audio = await taskOutputAudio(result.files[0]);
+                        setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskId: result.runId, taskStatus: "succeeded", taskStage: "completed" } } : node)));
                     } finally {
                         finishGenerationRequest(audioId, controller);
                     }
@@ -2611,10 +2632,6 @@ function InfiniteCanvasPage() {
                           count: "1",
                       }
                     : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
-            if (node.type === CanvasNodeType.Audio && !isAiConfigReady(generationConfig, generationConfig.model)) {
-                openConfigDialog(true);
-                return;
-            }
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
@@ -2694,8 +2711,18 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
-                    const audio = await uploadCanvasFile(await requestAudioGeneration(generationConfig, prompt, { signal: controller.signal }), "generated-audio");
-                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig) } } : item)));
+                    if (context?.referenceImages.length || context?.referenceVideos.length || context?.referenceAudios.length) throw new Error("DEEIX Canvas 音频任务当前仅支持文本输入");
+                    const audioModel = await resolveCanvasAudioModel(node.metadata?.model);
+                    const result = await streamCanvasAudioTask(
+                        projectId,
+                        { nodeId: node.id, model: audioModel.platformModelName, prompt, options: audioTaskOptions(generationConfig) },
+                        controller.signal,
+                        ({ runId, stage }) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, taskId: runId || item.metadata?.taskId, taskStatus: stage === "queued" ? "queued" : "running", taskStage: stage } } : item)));
+                        },
+                    );
+                    const audio = await taskOutputAudio(result.files[0]);
+                    setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig), model: result.model, taskId: result.runId, taskStatus: "succeeded", taskStage: "completed" } } : item)));
                     return;
                 }
 
