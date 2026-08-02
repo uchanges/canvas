@@ -23,6 +23,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => Promise<void>;
     deleteProjects: (ids: string[]) => Promise<void>;
     updateProject: (id: string, patch: CanvasProjectPatch) => void;
+    flushSaveProject: (id: string) => Promise<boolean>;
     retrySaveProject: (id: string) => void;
 };
 
@@ -30,6 +31,7 @@ type SaveTask = {
     timer: ReturnType<typeof setTimeout> | null;
     saving: boolean;
     version: number;
+    promise: Promise<boolean> | null;
 };
 
 const saveTasks = new Map<string, SaveTask>();
@@ -38,7 +40,7 @@ const SAVE_DELAY = 800;
 function taskFor(id: string) {
     let task = saveTasks.get(id);
     if (!task) {
-        task = { timer: null, saving: false, version: 0 };
+        task = { timer: null, saving: false, version: 0, promise: null };
         saveTasks.set(id, task);
     }
     return task;
@@ -62,39 +64,45 @@ function queueSave(id: string, delay = SAVE_DELAY) {
 
 async function flushSave(id: string) {
     const task = taskFor(id);
-    if (task.saving) return;
+    if (task.saving) return task.promise || false;
     const project = useCanvasStore.getState().projects.find((item) => item.id === id);
-    if (!project || useCanvasStore.getState().saveStates[id] === "conflict") return;
+    if (!project || useCanvasStore.getState().saveStates[id] === "conflict") return false;
 
     const version = task.version;
     task.saving = true;
     setSaveState(id, "saving");
-    try {
-        const saved = await saveCanvasScene(id, project);
-        const changedWhileSaving = task.version !== version;
-        useCanvasStore.setState((state) => ({
-            projects: state.projects.map((item) =>
-                item.id !== id
-                    ? item
-                    : changedWhileSaving
-                      ? { ...item, sceneVersion: saved.sceneVersion, sceneRevision: saved.sceneRevision, updatedAt: saved.updatedAt }
-                      : { ...saved, title: item.title, description: item.description, status: item.status },
-            ),
-        }));
-        task.saving = false;
-        if (changedWhileSaving) {
-            queueSave(id, 0);
-        } else {
-            setSaveState(id, "saved");
+    task.promise = (async () => {
+        try {
+            const saved = await saveCanvasScene(id, project);
+            const changedWhileSaving = task.version !== version;
+            useCanvasStore.setState((state) => ({
+                projects: state.projects.map((item) =>
+                    item.id !== id
+                        ? item
+                        : changedWhileSaving
+                          ? { ...item, sceneVersion: saved.sceneVersion, sceneRevision: saved.sceneRevision, updatedAt: saved.updatedAt }
+                          : { ...saved, title: item.title, description: item.description, status: item.status },
+                ),
+            }));
+            if (changedWhileSaving) {
+                queueSave(id, 0);
+            } else {
+                setSaveState(id, "saved");
+            }
+            return true;
+        } catch (error) {
+            if (error instanceof DeeixApiError && (error.status === 409 || error.code === "canvas_scene_revision_conflict")) {
+                setSaveState(id, "conflict", "画布已在其他位置更新，请重新打开后处理冲突。");
+                return false;
+            }
+            setSaveState(id, "error", deeixErrorMessage(error));
+            return false;
+        } finally {
+            task.saving = false;
+            task.promise = null;
         }
-    } catch (error) {
-        task.saving = false;
-        if (error instanceof DeeixApiError && (error.status === 409 || error.code === "canvas_scene_revision_conflict")) {
-            setSaveState(id, "conflict", "画布已在其他位置更新，请重新打开后处理冲突。");
-            return;
-        }
-        setSaveState(id, "error", deeixErrorMessage(error));
-    }
+    })();
+    return task.promise;
 }
 
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
@@ -162,6 +170,18 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
         }));
         if (get().saveStates[id] !== "conflict") queueSave(id);
+    },
+    flushSaveProject: async (id) => {
+        const task = taskFor(id);
+        while (true) {
+            if (task.timer) {
+                clearTimeout(task.timer);
+                task.timer = null;
+            }
+            const version = task.version;
+            if (!(await flushSave(id))) return false;
+            if (task.version === version && get().saveStates[id] === "saved") return true;
+        }
     },
     retrySaveProject: (id) => {
         if (get().saveStates[id] === "conflict") return;
